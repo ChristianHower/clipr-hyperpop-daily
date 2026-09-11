@@ -51,10 +51,10 @@
       .game { padding: clamp(24px, 5vw, 64px); display: flex; flex-direction: column; justify-content: center; max-width: 940px; width: 100%; margin: 0 auto; }
       .eyebrow { margin: 0 0 18px; font: 800 .75rem/1 monospace; letter-spacing: .16em; text-transform: uppercase; }
       h1 { margin: 0; font-size: clamp(3.7rem, 10vw, 8.8rem); line-height: .77; letter-spacing: -.095em; font-weight: 950; max-width: 760px; }
-      h1 em { display: block; color: var(--blue); font-style: normal; padding-left: .48em; }
+      h1 em { display: block; color: var(--blue); font-style: normal; }
       .prompt { max-width: 560px; margin: 34px 0 24px; font-size: 1rem; line-height: 1.5; }
 
-      .timeline { position: relative; display: grid; grid-template-columns: .1fr .4fr .5fr 1fr 2fr 4fr 7fr 15fr; height: 54px; border: 2px solid var(--ink); background: var(--white); overflow: hidden; }
+      .timeline { position: relative; display: grid; grid-template-columns: .5fr .5fr 1fr 2fr 4fr 8fr; height: 54px; border: 2px solid var(--ink); background: var(--white); overflow: hidden; }
       .segment { z-index: 2; border: 0; border-right: 1px solid var(--line); background: transparent; padding: 0; position: relative; }
       .segment:last-child { border-right: 0; }
       .segment.unlocked { box-shadow: inset 0 4px 0 var(--acid); }
@@ -99,11 +99,6 @@
       .attempt-list .mark { font: 900 .8rem monospace; }
       .attempt-list li.wrong .mark { color: var(--hot); }
       .attempt-list li.skiprow .mark { color: var(--acid); }
-      .roster { margin-top: auto; padding: 26px 24px 28px; border-top: 1px solid #3b3b3b; }
-      .roster p { margin: 0 0 13px; color: #777; font: 700 .68rem monospace; text-transform: uppercase; letter-spacing: .12em; }
-      .artist-cloud { display: flex; flex-wrap: wrap; gap: 6px; }
-      .artist-cloud span { border: 1px solid #595959; padding: 5px 7px; font-size: .7rem; text-transform: uppercase; }
-
       footer { min-height: 45px; border-top: 2px solid var(--ink); display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 24px; font: 700 .68rem/1.3 monospace; text-transform: uppercase; }
       footer span:last-child { color: var(--muted); text-align: right; }
 
@@ -132,7 +127,6 @@
         main { grid-template-columns: 1fr; }
         .game { min-height: calc(100vh - 120px); }
         .sidebar { border-left: 0; border-top: 2px solid var(--ink); }
-        .roster { display: none; }
       }
       @media (max-width: 600px) {
         .topbar { grid-template-columns: 1fr auto; padding: 0 16px; }
@@ -173,14 +167,12 @@
 
           <div class="timeline" id="timeline" aria-label="Audio preview timeline">
             <div class="playback-fill" id="playbackFill"></div>
-            <button class="segment unlocked" data-seconds="0.1" aria-label="0.1 seconds unlocked"></button>
-            <button class="segment" data-seconds="0.5" aria-label="0.5 seconds locked"></button>
+            <button class="segment unlocked" data-seconds="0.5" aria-label="0.5 seconds unlocked"></button>
             <button class="segment" data-seconds="1" aria-label="One second locked"></button>
             <button class="segment" data-seconds="2" aria-label="Two seconds locked"></button>
             <button class="segment" data-seconds="4" aria-label="Four seconds locked"></button>
             <button class="segment" data-seconds="8" aria-label="Eight seconds locked"></button>
-            <button class="segment" data-seconds="15" aria-label="Fifteen seconds locked"></button>
-            <button class="segment reveal-segment" data-seconds="30" aria-label="Thirty seconds unlocks after reveal"></button>
+            <button class="segment" data-seconds="16" aria-label="Sixteen seconds locked"></button>
             <div class="playhead" id="playhead"></div>
           </div>
           <div class="timeline-time" id="clipLength" aria-live="polite">loading preview</div>
@@ -188,7 +180,7 @@
           <div class="transport">
             <button class="play" id="playButton" aria-label="Loading Deezer preview" disabled>…</button>
             <div class="listen-meta">
-              <span>official 30 sec preview<br />metadata by Deezer</span>
+              <span>official Deezer preview<br />metadata by Deezer</span>
             </div>
           </div>
 
@@ -201,17 +193,13 @@
           </div>
           <div class="secondary-row">
             <button class="skip" id="skipButton" disabled>Skip</button>
-            <span class="attempts" id="attemptText">7 attempts left</span>
+            <span class="attempts" id="attemptText">6 attempts left</span>
           </div>
         </section>
 
-        <aside class="sidebar" aria-label="Attempts and artist roster">
-          <div class="side-head"><h2>Transmission log</h2><span class="counter" id="sideCounter">0 / 7</span></div>
+        <aside class="sidebar" aria-label="Attempts">
+          <div class="side-head"><h2>Transmission log</h2><span class="counter" id="sideCounter">0 / 6</span></div>
           <ol class="attempt-list" id="attemptList"></ol>
-          <div class="roster">
-            <p>In the rotation</p>
-            <div class="artist-cloud" id="artistCloud"></div>
-          </div>
         </aside>
       </main>
 
@@ -240,8 +228,8 @@
         <button class="close" data-close aria-label="Close">×</button>
         <span class="kicker">CLIP//R protocol</span>
         <h2 id="infoTitle">hear it.<br />clock it.</h2>
-        <p>Press play, then choose a track. Every miss unlocks more of the signal: 0.1, 0.5, 1, 2, 4, 8, then 15 seconds. One puzzle drops each day.</p>
-        <p>Track information and the official 30-second preview load directly from Deezer. CLIP//R plays the unlocked opening segment, then unlocks the full preview after the answer is revealed.</p>
+        <p>Press play, then choose a track. Every miss unlocks more of the signal: 0.5, 1, 2, 4, 8, then 16 seconds. One puzzle drops each day.</p>
+        <p>Track information and the official preview load directly from Deezer. CLIP//R plays only the unlocked opening segment, then makes the full preview available after the answer is revealed.</p>
         <div class="modal-actions"><button data-close>let’s play</button></div>
       </div>
     </div>
@@ -263,7 +251,7 @@
     <script>
       let tracks = [];
 
-      const clipSteps = [0.1, 0.5, 1, 2, 4, 8, 15];
+      const clipSteps = [0.5, 1, 2, 4, 8, 16];
       const maxAttempts = clipSteps.length;
       const previewDuration = 30;
       const launchDay = Date.UTC(2026, 8, 11);
@@ -347,13 +335,6 @@
             stopPreview();
             toast("today’s Deezer preview is unavailable");
           });
-          const cloud = $("#artistCloud");
-          cloud.innerHTML = "";
-          [...new Set(tracks.map((track) => track.artist))].forEach((artist) => {
-            const chip = document.createElement("span");
-            chip.textContent = artist;
-            cloud.appendChild(chip);
-          });
           catalogReady = true;
           input.placeholder = "Search artist or track…";
           playButton.textContent = "▶";
@@ -363,7 +344,6 @@
         } catch (error) {
           $("#clipLength").textContent = "preview unavailable";
           input.placeholder = "Deezer catalog unavailable";
-          $("#artistCloud").textContent = "Unable to load Deezer previews.";
           toast(error.message || "Deezer catalog unavailable");
         }
       }
@@ -378,12 +358,11 @@
       function render() {
         const step = currentStep();
         document.querySelectorAll(".segment").forEach((segment, index) => {
-          const isGameSegment = index < clipSteps.length;
-          const isUnlocked = state.over || (isGameSegment && index <= step);
+          const isUnlocked = state.over || index <= step;
           segment.classList.toggle("unlocked", isUnlocked);
-          segment.classList.toggle("used", isGameSegment && Boolean(state.attempts[index]));
+          segment.classList.toggle("used", Boolean(state.attempts[index]));
           const durationLabel = formatDuration(Number(segment.dataset.seconds));
-          segment.setAttribute("aria-label", isGameSegment ? `${durationLabel} ${isUnlocked ? "unlocked" : "locked"}` : (state.over ? `${durationLabel} unlocked` : `${durationLabel} unlocks after reveal`));
+          segment.setAttribute("aria-label", `${durationLabel} ${isUnlocked ? "unlocked" : "locked"}`);
         });
         timeline.classList.toggle("complete", state.over);
         const duration = currentDuration();
@@ -549,10 +528,11 @@
           playButton.textContent = "■";
           resultPlayButton.textContent = "stop preview";
           const started = performance.now();
+          const timelineDuration = state.over ? previewDuration : clipSteps[clipSteps.length - 1];
           const animate = (time) => {
             if (!playing || run !== playbackRun) return;
             const elapsed = Math.min(duration, (time - started) / 1000);
-            const width = Math.min(100, (elapsed / previewDuration) * 100);
+            const width = Math.min(100, (elapsed / timelineDuration) * 100);
             playbackFill.style.width = `${width}%`;
             playhead.style.left = `${width}%`;
             if (elapsed < duration) requestAnimationFrame(animate);
