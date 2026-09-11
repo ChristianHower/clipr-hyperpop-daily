@@ -21,6 +21,7 @@
         --acid: #c8ff00;
         --blue: #4355ff;
         --hot: #ff4ead;
+        --yellow: #ffd84d;
         --muted: #77776f;
         --line: #b6b6af;
         --white: #fff;
@@ -98,6 +99,7 @@
       .attempt-list .empty { color: #5e5e5e; font-weight: 500; }
       .attempt-list .mark { font: 900 .8rem monospace; }
       .attempt-list li.wrong .mark { color: var(--hot); }
+      .attempt-list li.near .mark { color: var(--yellow); }
       .attempt-list li.skiprow .mark { color: var(--acid); }
       footer { min-height: 45px; border-top: 2px solid var(--ink); display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 0 24px; font: 700 .68rem/1.3 monospace; text-transform: uppercase; }
       footer span:last-child { color: var(--muted); text-align: right; }
@@ -229,6 +231,7 @@
         <span class="kicker">CLIP//R protocol</span>
         <h2 id="infoTitle">hear it.<br />clock it.</h2>
         <p>Press play, then choose a track. Every miss unlocks more of the signal: 0.5, 1, 2, 4, 8, then 16 seconds. One puzzle drops each day.</p>
+        <p>A yellow ARTIST or ALBUM marker means your guess shares that detail with the answer.</p>
         <p>Track information and the official preview load directly from Deezer. CLIP//R plays only the unlocked opening segment, then makes the full preview available after the answer is revealed.</p>
         <div class="modal-actions"><button data-close>let’s play</button></div>
       </div>
@@ -266,6 +269,8 @@
       let previewTimer = null;
       let playbackRun = 0;
       let catalogReady = false;
+      let submittingGuess = false;
+      const trackMetadata = new Map();
       try { state = { ...state, ...JSON.parse(localStorage.getItem(dayKey) || "{}") }; } catch (_) {}
 
       const $ = (selector) => document.querySelector(selector);
@@ -320,10 +325,15 @@
           const selected = tracks.find((track) => track.id === Number(scheduled?.deezerId)) || tracks[((dayIndex % tracks.length) + tracks.length) % tracks.length];
           const record = await deezerJsonp(`/track/${selected.id}`);
           if (!record.readable || !record.preview) throw new Error("Today’s preview is unavailable in this region");
+          trackMetadata.set(selected.id, record);
           puzzle = {
             ...selected,
             artist: record.artist?.name || selected.artist,
             title: record.title || selected.title,
+            albumId: Number(record.album?.id) || null,
+            albumKey: normalize(record.album?.title || ""),
+            artistIds: artistIds(record),
+            artistKeys: artistKeys(record, selected.artist),
             preview: record.preview,
             link: record.link,
             cover: record.album?.cover_big || record.album?.cover_medium || null,
@@ -355,6 +365,47 @@
       function label(track) { return `${track.artist} — ${track.title}`; }
       function persist() { localStorage.setItem(dayKey, JSON.stringify(state)); }
 
+      function artistIds(record) {
+        return [...new Set([record.artist?.id, ...(record.contributors || []).map((artist) => artist.id)].map(Number).filter(Number.isFinite))];
+      }
+
+      function artistKeys(record, fallbackArtist = "") {
+        return [...new Set([record.artist?.name, ...(record.contributors || []).map((artist) => artist.name), fallbackArtist].map((name) => normalize(name || "")).filter(Boolean))];
+      }
+
+      function sharesValue(left, right) {
+        const values = new Set(left);
+        return right.some((value) => values.has(value));
+      }
+
+      async function classifyGuess(track) {
+        let record = trackMetadata.get(track.id);
+        if (!record) {
+          record = await deezerJsonp(`/track/${track.id}`);
+          trackMetadata.set(track.id, record);
+        }
+        const guessedAlbumId = Number(record.album?.id) || null;
+        const guessedAlbumKey = normalize(record.album?.title || "");
+        if ((puzzle.albumId && guessedAlbumId === puzzle.albumId) || (puzzle.albumKey && guessedAlbumKey === puzzle.albumKey)) return "album";
+        if (sharesValue(puzzle.artistIds, artistIds(record)) || sharesValue(puzzle.artistKeys, artistKeys(record, track.artist))) return "artist";
+        return "guess";
+      }
+
+      function attemptClass(attempt) {
+        if (!attempt) return "";
+        if (attempt.type === "skip") return "skiprow";
+        if (attempt.type === "artist" || attempt.type === "album") return "near";
+        return "wrong";
+      }
+
+      function attemptMark(attempt) {
+        if (!attempt) return "—";
+        if (attempt.type === "skip") return "SKIP";
+        if (attempt.type === "artist") return "ARTIST";
+        if (attempt.type === "album") return "ALBUM";
+        return "MISS";
+      }
+
       function render() {
         const step = currentStep();
         document.querySelectorAll(".segment").forEach((segment, index) => {
@@ -372,9 +423,10 @@
         const attemptsLeft = maxAttempts - state.attempts.length;
         $("#attemptText").textContent = state.over ? (state.won ? "signal identified" : "transmission ended") : `${attemptsLeft} attempt${attemptsLeft === 1 ? "" : "s"} left`;
         playButton.disabled = !catalogReady;
-        input.disabled = !catalogReady || state.over;
-        $("#submitGuess").disabled = !catalogReady || state.over;
-        $("#skipButton").disabled = !catalogReady || state.over;
+        input.disabled = !catalogReady || state.over || submittingGuess;
+        $("#submitGuess").disabled = !catalogReady || state.over || submittingGuess;
+        $("#submitGuess").textContent = submittingGuess ? "checking…" : "guess";
+        $("#skipButton").disabled = !catalogReady || state.over || submittingGuess;
         $("#skipButton").textContent = "Skip";
 
         const list = $("#attemptList");
@@ -382,8 +434,8 @@
         for (let i = 0; i < maxAttempts; i++) {
           const item = document.createElement("li");
           const attempt = state.attempts[i];
-          item.className = attempt ? (attempt.type === "skip" ? "skiprow" : "wrong") : "";
-          item.innerHTML = `<span class="n">0${i + 1}</span><span class="text ${attempt ? "" : "empty"}">${attempt ? escapeHtml(attempt.text) : "Waiting for input"}</span><span class="mark">${attempt ? (attempt.type === "skip" ? "SKIP" : "MISS") : "—"}</span>`;
+          item.className = attemptClass(attempt);
+          item.innerHTML = `<span class="n">0${i + 1}</span><span class="text ${attempt ? "" : "empty"}">${attempt ? escapeHtml(attempt.text) : "Waiting for input"}</span><span class="mark">${attemptMark(attempt)}</span>`;
           list.appendChild(item);
         }
       }
@@ -437,8 +489,8 @@
         else if (event.key === "Escape") suggestions.classList.remove("open");
       });
 
-      function submitGuess() {
-        if (!catalogReady || state.over) return;
+      async function submitGuess() {
+        if (!catalogReady || state.over || submittingGuess) return;
         const typed = input.value.trim();
         if (!typed) return toast("choose a track first");
         const selected = tracks.find((track) => normalize(label(track)) === normalize(typed));
@@ -451,17 +503,27 @@
           render();
           reveal();
         } else {
-          state.attempts.push({ type: "guess", text: label(selected) });
+          submittingGuess = true;
+          suggestions.classList.remove("open");
+          render();
+          let guessType = "guess";
+          try { guessType = await classifyGuess(selected); } catch (_) {}
+          submittingGuess = false;
+          state.attempts.push({ type: guessType, text: label(selected) });
           input.value = "";
           if (state.attempts.length >= maxAttempts) finishLoss();
           persist();
           render();
-          if (!state.over) toast("nope — more signal unlocked");
+          if (!state.over) {
+            if (guessType === "album") toast("same album — more signal unlocked");
+            else if (guessType === "artist") toast("right artist — more signal unlocked");
+            else toast("nope — more signal unlocked");
+          }
         }
       }
 
       function skip() {
-        if (!catalogReady || state.over) return;
+        if (!catalogReady || state.over || submittingGuess) return;
         state.attempts.push({ type: "skip", text: "Skipped" });
         if (state.attempts.length >= maxAttempts) finishLoss();
         persist();
@@ -577,7 +639,7 @@
         openModal("statsModal");
       });
       $("#shareButton").addEventListener("click", async () => {
-        const marks = state.attempts.map((a) => a.type === "skip" ? "⬛" : "🟥").join("") + (state.won ? "🟩" : "");
+        const marks = state.attempts.map((a) => a.type === "skip" ? "⬛" : (a.type === "artist" || a.type === "album") ? "🟨" : "🟥").join("") + (state.won ? "🟩" : "");
         const result = `CLIP//R #${puzzleNo} ${state.won ? `${state.attempts.length + 1}/${maxAttempts}` : `X/${maxAttempts}`}\n${marks}`;
         try { await navigator.clipboard.writeText(result); toast("result copied"); } catch (_) { toast("copy unavailable"); }
       });
@@ -614,12 +676,12 @@
               additionalProperties: false
             },
             annotations: { readOnlyHint: false, untrustedContentHint: false },
-            execute(value) {
+            async execute(value) {
               if (state.over) throw new Error("Today's game is already complete.");
               const selected = tracks.find((track) => normalize(track.artist) === normalize(value?.artist || "") && normalize(track.title) === normalize(value?.title || ""));
               if (!selected) throw new Error("Choose an artist and track from the available choices.");
               input.value = label(selected);
-              submitGuess();
+              await submitGuess();
               return { correct: state.over && state.won, complete: state.over, attemptsRemaining: Math.max(0, maxAttempts - state.attempts.length), clipSeconds: clipSteps[currentStep()] };
             }
           },

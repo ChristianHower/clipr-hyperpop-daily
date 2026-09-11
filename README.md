@@ -4,6 +4,8 @@ CLIP//R is a daily hyperpop music guessing game inspired by Heardle. Everyone ge
 
 Players begin with 0.5 seconds of audio. A wrong guess or skip unlocks progressively longer clips at 1, 2, 4, 8, and 16 seconds. When the game ends, CLIP//R reveals the track, artist, and album artwork, unlocks the full 30-second preview, and links to the song on SoundCloud.
 
+Wrong guesses from the correct artist or album receive a yellow hint in the transmission log. Album matches take priority, and featured artists count toward an artist match when Deezer lists them as contributors.
+
 The rotation focuses on hyperpop and adjacent internet-pop scenes. See [CATALOG.md](CATALOG.md) for every accepted search option. The current catalog also imports every usable track from the Spotify playlist [is this hyperpop?](https://open.spotify.com/playlist/21BRDwCxzodioo2OnIxIWG); [PLAYLIST_IMPORT.md](PLAYLIST_IMPORT.md) records the import totals and songs that could not be matched to a playable Deezer preview.
 
 ## How it works
