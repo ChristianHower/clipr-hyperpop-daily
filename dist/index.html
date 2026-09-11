@@ -35,6 +35,7 @@
       body { margin: 0; min-height: 100vh; background: var(--paper); }
       button, input { font: inherit; }
       button { color: inherit; }
+      button:disabled, input:disabled { cursor: not-allowed; opacity: .48; }
       button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
 
       .shell { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; overflow: hidden; }
@@ -114,9 +115,11 @@
       .card .answer strong, .card .answer span { display: block; }
       .card .answer strong { font-size: 1.15rem; }
       .card .answer span { color: var(--muted); margin-top: 4px; }
-      .modal-actions { display: flex; gap: 10px; }
+      .modal-actions { display: flex; flex-wrap: wrap; gap: 10px; }
       .modal-actions button { min-height: 48px; border: 2px solid var(--ink); padding: 0 16px; background: var(--acid); font-weight: 900; cursor: pointer; }
       .modal-actions button:last-child { background: transparent; }
+      .deezer-link { min-height: 48px; display: inline-flex; align-items: center; border: 2px solid var(--ink); padding: 0 16px; background: #a8ff1e; color: var(--ink); font-weight: 900; text-decoration: none; text-transform: uppercase; }
+      footer a { color: inherit; text-underline-offset: 3px; }
       .close { position: absolute; top: 12px; right: 12px; width: 38px; height: 38px; border: 0; background: transparent; font-size: 1.3rem; cursor: pointer; }
       .toast { position: fixed; left: 50%; bottom: 60px; z-index: 50; transform: translate(-50%, 20px); opacity: 0; pointer-events: none; padding: 12px 16px; background: var(--ink); color: var(--acid); font: 800 .78rem monospace; text-transform: uppercase; transition: .2s ease; }
       .toast.show { opacity: 1; transform: translate(-50%, 0); }
@@ -159,7 +162,7 @@
       <main>
         <section class="game" aria-labelledby="game-title">
           <p class="eyebrow">Daily transmission <span id="puzzleNumber">#0147</span></p>
-          <h1 id="game-title">name that <em>noise.</em></h1>
+          <h1 id="game-title">placeholder <em>text.</em></h1>
           <p class="prompt">Identify today’s track in as few seconds as possible. A wrong guess or skip unlocks a longer clip.</p>
 
           <div class="timeline" id="timeline" aria-label="Audio preview timeline">
@@ -173,22 +176,22 @@
           </div>
 
           <div class="transport">
-            <button class="play" id="playButton" aria-label="Play one second preview">▶</button>
+            <button class="play" id="playButton" aria-label="Loading Deezer preview" disabled>…</button>
             <div class="listen-meta">
-              <span id="clipLength">01 sec unlocked</span>
-              <span>procedural demo audio<br />licensed tracks can plug in</span>
+              <span id="clipLength">loading preview</span>
+              <span>official 30 sec preview<br />metadata by Deezer</span>
             </div>
           </div>
 
           <div class="guess-area">
             <div class="guess-row">
-              <input id="guessInput" type="text" placeholder="Search artist or track…" autocomplete="off" aria-label="Guess a track" aria-autocomplete="list" aria-controls="suggestions" />
-              <button id="submitGuess">guess</button>
+              <input id="guessInput" type="text" placeholder="Loading today’s catalog…" autocomplete="off" aria-label="Guess a track" aria-autocomplete="list" aria-controls="suggestions" disabled />
+              <button id="submitGuess" disabled>guess</button>
             </div>
             <div class="suggestions" id="suggestions" role="listbox" aria-label="Track suggestions"></div>
           </div>
           <div class="secondary-row">
-            <button class="skip" id="skipButton">Skip +1 sec →</button>
+            <button class="skip" id="skipButton" disabled>Skip +1 sec →</button>
             <span class="attempts" id="attemptText">6 attempts left</span>
           </div>
         </section>
@@ -205,7 +208,7 @@
 
       <footer>
         <span>New track at midnight · local time</span>
-        <span>Independent fan prototype · support the artists</span>
+        <span>Preview audio and metadata from <a href="https://www.deezer.com" target="_blank" rel="noopener">Deezer</a></span>
       </footer>
     </div>
 
@@ -216,7 +219,7 @@
         <h2 id="resultTitle">nailed it.</h2>
         <div class="answer"><strong id="answerTrack"></strong><span id="answerArtist"></span></div>
         <p id="resultCopy"></p>
-        <div class="modal-actions"><button id="shareButton">copy result</button><button data-close>close</button></div>
+        <div class="modal-actions"><button id="shareButton">copy result</button><a class="deezer-link" id="deezerLink" href="https://www.deezer.com" target="_blank" rel="noopener">open in Deezer</a><button data-close>close</button></div>
       </div>
     </div>
 
@@ -226,7 +229,7 @@
         <span class="kicker">CLIP//R protocol</span>
         <h2 id="infoTitle">hear it.<br />clock it.</h2>
         <p>Press play, then choose a track. Every miss unlocks more of the signal: 1, 2, 4, 7, 11, then 16 seconds. One puzzle drops each day.</p>
-        <p>This prototype uses a generated demo signal. Add licensed preview URLs to the track data to ship the real listening game.</p>
+        <p>Track information and the official 30-second preview load directly from Deezer. CLIP//R only plays the unlocked opening segment.</p>
         <div class="modal-actions"><button data-close>let’s play</button></div>
       </div>
     </div>
@@ -245,27 +248,32 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
     <script>
-      const tracks = [
-        { artist: "glaive", title: "astrid", notes: [220, 277, 330, 415] },
-        { artist: "Ninajirachi", title: "Start Small", notes: [196, 247, 294, 392] },
-        { artist: "Tiffany Day", title: "FEEL ALRIGHT", notes: [233, 294, 349, 466] },
-        { artist: "Frost Children", title: "FLATLINE", notes: [175, 220, 262, 349] },
-        { artist: "Porter Robinson", title: "Look at the Sky", notes: [262, 330, 392, 523] },
-        { artist: "Tsubi Club", title: "burbank house", notes: [208, 262, 311, 415] },
-        { artist: "Jane Remover", title: "homeswitcher", notes: [185, 233, 277, 370] },
-        { artist: "underscores", title: "Spoiled little brat", notes: [247, 311, 370, 494] },
-        { artist: "brakence", title: "deepfake", notes: [165, 208, 247, 330] },
-        { artist: "ericdoa", title: "sad4whattt", notes: [220, 262, 330, 440] },
-        { artist: "8485", title: "1:15", notes: [196, 233, 294, 392] },
-        { artist: "Alice Longyu Gao", title: "Rich Bitch Juice", notes: [277, 349, 415, 554] }
+      const catalogIds = [
+        1008321682,
+        1953278607,
+        1191025852,
+        3492725931,
+        3484515861,
+        2853380062,
+        2028806127,
+        1247701152,
+        2041275807,
+        1629080302,
+        1027752462,
+        814851732
       ];
+      let tracks = [];
 
       const clipSteps = [1, 2, 4, 7, 11, 16];
       const dayIndex = Math.floor((Date.now() - new Date("2026-01-01").getTime()) / 86400000);
-      const puzzle = tracks[((dayIndex % tracks.length) + tracks.length) % tracks.length];
       const puzzleNo = 147 + dayIndex;
       const dayKey = `clipr-${new Date().toISOString().slice(0, 10)}`;
       let state = { attempts: [], over: false, won: false };
+      let puzzle = null;
+      let previewAudio = null;
+      let previewTimer = null;
+      let playbackRun = 0;
+      let catalogReady = false;
       try { state = { ...state, ...JSON.parse(localStorage.getItem(dayKey) || "{}") }; } catch (_) {}
 
       const $ = (selector) => document.querySelector(selector);
@@ -274,16 +282,69 @@
       const timeline = $("#timeline");
       const playhead = $("#playhead");
       const playButton = $("#playButton");
-      let audioCtx;
       let playing = false;
       let suggestionIndex = -1;
 
       $("#puzzleNumber").textContent = `#${String(puzzleNo).padStart(4, "0")}`;
-      [...new Set(tracks.map((track) => track.artist))].forEach((artist) => {
-        const chip = document.createElement("span");
-        chip.textContent = artist;
-        $("#artistCloud").appendChild(chip);
-      });
+
+      function deezerJsonp(path) {
+        return new Promise((resolve, reject) => {
+          const callback = `cliprDeezer_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+          const script = document.createElement("script");
+          const cleanup = () => { delete window[callback]; script.remove(); };
+          const timer = setTimeout(() => { cleanup(); reject(new Error("Deezer request timed out")); }, 10000);
+          window[callback] = (data) => {
+            clearTimeout(timer);
+            cleanup();
+            if (data?.error) reject(new Error(data.error.message || "Deezer request failed"));
+            else resolve(data);
+          };
+          script.onerror = () => { clearTimeout(timer); cleanup(); reject(new Error("Deezer is unavailable")); };
+          const joiner = path.includes("?") ? "&" : "?";
+          script.src = `https://api.deezer.com${path}${joiner}output=jsonp&callback=${callback}`;
+          document.head.appendChild(script);
+        });
+      }
+
+      async function loadCatalog() {
+        try {
+          const records = await Promise.all(catalogIds.map((id) => deezerJsonp(`/track/${id}`)));
+          tracks = records.filter((track) => track.readable && track.preview).map((track) => ({
+            id: track.id,
+            artist: track.artist.name,
+            title: track.title,
+            preview: track.preview,
+            link: track.link,
+            cover: track.album?.cover_medium || null
+          }));
+          if (tracks.length !== catalogIds.length) throw new Error("Some previews are unavailable in this region");
+          puzzle = tracks[((dayIndex % tracks.length) + tracks.length) % tracks.length];
+          previewAudio = new Audio(puzzle.preview);
+          previewAudio.preload = "auto";
+          previewAudio.addEventListener("error", () => {
+            stopPreview();
+            toast("today’s Deezer preview is unavailable");
+          });
+          const cloud = $("#artistCloud");
+          cloud.innerHTML = "";
+          [...new Set(tracks.map((track) => track.artist))].forEach((artist) => {
+            const chip = document.createElement("span");
+            chip.textContent = artist;
+            cloud.appendChild(chip);
+          });
+          catalogReady = true;
+          input.placeholder = "Search artist or track…";
+          playButton.textContent = "▶";
+          render();
+          registerAgentTools();
+          if (state.over) setTimeout(reveal, 250);
+        } catch (error) {
+          $("#clipLength").textContent = "preview unavailable";
+          input.placeholder = "Deezer catalog unavailable";
+          $("#artistCloud").textContent = "Unable to load Deezer previews.";
+          toast(error.message || "Deezer catalog unavailable");
+        }
+      }
 
       function currentStep() { return Math.min(state.attempts.length, clipSteps.length - 1); }
       function normalize(value) { return value.toLowerCase().replace(/[^a-z0-9]/g, ""); }
@@ -296,13 +357,14 @@
           segment.classList.toggle("unlocked", index <= step && !state.attempts[index]);
           segment.classList.toggle("used", Boolean(state.attempts[index]));
         });
-        $("#clipLength").textContent = `${String(clipSteps[step]).padStart(2, "0")} sec unlocked`;
-        playButton.setAttribute("aria-label", `Play ${clipSteps[step]} second preview`);
+        $("#clipLength").textContent = catalogReady ? `${String(clipSteps[step]).padStart(2, "0")} sec unlocked` : "loading preview";
+        playButton.setAttribute("aria-label", catalogReady ? `Play ${clipSteps[step]} second preview` : "Loading Deezer preview");
         $("#sideCounter").textContent = `${state.attempts.length} / 6`;
         $("#attemptText").textContent = state.over ? (state.won ? "signal identified" : "transmission ended") : `${6 - state.attempts.length} attempt${state.attempts.length === 5 ? "" : "s"} left`;
-        input.disabled = state.over;
-        $("#submitGuess").disabled = state.over;
-        $("#skipButton").disabled = state.over;
+        playButton.disabled = !catalogReady;
+        input.disabled = !catalogReady || state.over;
+        $("#submitGuess").disabled = !catalogReady || state.over;
+        $("#skipButton").disabled = !catalogReady || state.over;
         $("#skipButton").textContent = state.over ? "Puzzle complete" : `Skip +${Math.max(1, clipSteps[Math.min(step + 1, 5)] - clipSteps[step])} sec →`;
 
         const list = $("#attemptList");
@@ -366,7 +428,7 @@
       });
 
       function submitGuess() {
-        if (state.over) return;
+        if (!catalogReady || state.over) return;
         const typed = input.value.trim();
         if (!typed) return toast("choose a track first");
         const selected = tracks.find((track) => normalize(label(track)) === normalize(typed));
@@ -389,7 +451,7 @@
       }
 
       function skip() {
-        if (state.over) return;
+        if (!catalogReady || state.over) return;
         state.attempts.push({ type: "skip", text: "Skipped" });
         if (state.attempts.length >= 6) finishLoss();
         persist();
@@ -415,61 +477,52 @@
       }
 
       function reveal() {
+        if (!puzzle) return;
         $("#resultKicker").textContent = state.won ? "Signal found" : "Signal lost";
         $("#resultTitle").textContent = state.won ? "nailed it." : "too loud.";
         $("#answerTrack").textContent = puzzle.title;
         $("#answerArtist").textContent = puzzle.artist;
+        $("#deezerLink").href = puzzle.link;
         $("#resultCopy").textContent = state.won ? `You got it with ${clipSteps[currentStep()]} seconds of signal.` : "Come back tomorrow for another transmission.";
         openModal("resultModal");
       }
 
-      function playSignal() {
-        if (playing) return;
-        audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+      function stopPreview() {
+        if (previewTimer) clearTimeout(previewTimer);
+        previewTimer = null;
+        playbackRun += 1;
+        if (previewAudio) {
+          previewAudio.pause();
+          previewAudio.currentTime = 0;
+        }
+        playing = false;
+        playButton.textContent = "▶";
+        playhead.style.left = "0";
+      }
+
+      async function playSignal() {
+        if (!catalogReady || !previewAudio) return toast("Deezer preview is still loading");
+        if (playing) return stopPreview();
         const duration = clipSteps[currentStep()];
-        const now = audioCtx.currentTime;
-        const master = audioCtx.createGain();
-        const compressor = audioCtx.createDynamicsCompressor();
-        master.gain.setValueAtTime(0.0001, now);
-        master.gain.exponentialRampToValueAtTime(0.22, now + 0.03);
-        master.gain.setValueAtTime(0.22, now + Math.max(.04, duration - .08));
-        master.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-        master.connect(compressor).connect(audioCtx.destination);
-        const beat = .25;
-        for (let t = 0; t < duration; t += beat) {
-          const note = puzzle.notes[Math.floor(t / beat) % puzzle.notes.length];
-          const osc = audioCtx.createOscillator();
-          const gain = audioCtx.createGain();
-          osc.type = (Math.floor(t / beat) % 3 === 0) ? "sawtooth" : "square";
-          osc.frequency.setValueAtTime(note, now + t);
-          osc.detune.setValueAtTime((Math.sin(t * 9) * 16), now + t);
-          gain.gain.setValueAtTime(.0001, now + t);
-          gain.gain.exponentialRampToValueAtTime(.09, now + t + .01);
-          gain.gain.exponentialRampToValueAtTime(.0001, now + Math.min(duration, t + beat * .78));
-          osc.connect(gain).connect(master);
-          osc.start(now + t);
-          osc.stop(now + Math.min(duration, t + beat));
+        stopPreview();
+        const run = ++playbackRun;
+        try {
+          await previewAudio.play();
+          playing = true;
+          playButton.textContent = "■";
+          const started = performance.now();
+          const animate = (time) => {
+            if (!playing || run !== playbackRun) return;
+            const progress = Math.min(1, (time - started) / (duration * 1000));
+            playhead.style.left = `${progress * 100}%`;
+            if (progress < 1) requestAnimationFrame(animate);
+          };
+          requestAnimationFrame(animate);
+          previewTimer = setTimeout(stopPreview, duration * 1000);
+        } catch (_) {
+          stopPreview();
+          toast("Deezer blocked this preview");
         }
-        for (let t = 0; t < duration; t += .5) {
-          const kick = audioCtx.createOscillator();
-          const kg = audioCtx.createGain();
-          kick.frequency.setValueAtTime(130, now + t);
-          kick.frequency.exponentialRampToValueAtTime(48, now + t + .12);
-          kg.gain.setValueAtTime(.22, now + t);
-          kg.gain.exponentialRampToValueAtTime(.0001, now + t + .14);
-          kick.connect(kg).connect(master);
-          kick.start(now + t); kick.stop(now + t + .15);
-        }
-        playing = true;
-        playButton.textContent = "■";
-        const started = performance.now();
-        const animate = (time) => {
-          const progress = Math.min(1, (time - started) / (duration * 1000));
-          playhead.style.left = `${progress * 100}%`;
-          if (progress < 1) requestAnimationFrame(animate);
-          else { playing = false; playButton.textContent = "▶"; playhead.style.left = "0"; }
-        };
-        requestAnimationFrame(animate);
       }
 
       function toast(message) {
@@ -569,8 +622,7 @@
 
       window.addEventListener("clipr:new-game", () => input.focus());
       render();
-      registerAgentTools();
-      if (state.over) setTimeout(reveal, 250);
+      loadCatalog();
     </script>
   </body>
 </html>
