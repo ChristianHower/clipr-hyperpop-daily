@@ -4,7 +4,7 @@ CLIP//R is a daily hyperpop music guessing game inspired by Heardle. Everyone ge
 
 Players begin with one second of audio. A wrong guess or skip unlocks progressively longer clips at 2, 4, 7, 11, and 16 seconds. When the game ends, CLIP//R reveals the track, artist, and album artwork, unlocks the full 30-second preview, and links to the song on SoundCloud.
 
-The rotation focuses on artists from hyperpop and adjacent internet-pop scenes, including glaive, Ninajirachi, Tiffany Day, Frost Children, Porter Robinson, tsubi club, Jane Remover, underscores, brakence, ericdoa, 8485, and Alice Longyu Gao. See [CATALOG.md](CATALOG.md) for every accepted search option.
+The rotation focuses on hyperpop and adjacent internet-pop scenes. See [CATALOG.md](CATALOG.md) for every accepted search option. The current catalog also imports every usable track from the Spotify playlist [is this hyperpop?](https://open.spotify.com/playlist/21BRDwCxzodioo2OnIxIWG); [PLAYLIST_IMPORT.md](PLAYLIST_IMPORT.md) records the import totals and songs that could not be matched to a playable Deezer preview.
 
 ## How it works
 
