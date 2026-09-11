@@ -4,7 +4,7 @@ CLIP//R is a daily hyperpop music guessing game inspired by Heardle. Everyone ge
 
 Players begin with one second of audio. A wrong guess or skip unlocks progressively longer clips at 2, 4, 7, 11, and 16 seconds. When the game ends, CLIP//R reveals the track, artist, and album artwork, unlocks the full 30-second preview, and links to the song on SoundCloud.
 
-The rotation focuses on artists from hyperpop and adjacent internet-pop scenes, including glaive, Ninajirachi, Tiffany Day, Frost Children, Porter Robinson, tsubi club, Jane Remover, underscores, brakence, ericdoa, 8485, and Alice Longyu Gao.
+The rotation focuses on artists from hyperpop and adjacent internet-pop scenes, including glaive, Ninajirachi, Tiffany Day, Frost Children, Porter Robinson, tsubi club, Jane Remover, underscores, brakence, ericdoa, 8485, and Alice Longyu Gao. See [CATALOG.md](CATALOG.md) for every accepted search option.
 
 ## How it works
 
@@ -20,6 +20,20 @@ python3 -m http.server 4173 --directory dist
 ```
 
 Then open `http://localhost:4173`.
+
+## Private queue editor
+
+The queue editor lives at `tools/queue-editor.html`, outside the deployed `dist` directory. It is therefore available only to someone with this private repository checkout and is never published with the game.
+
+Run the repository root locally:
+
+```sh
+python3 -m http.server 4173
+```
+
+Then open `http://localhost:4173/tools/queue-editor.html` in Chrome or Edge. Use **Open queue.json** to select `dist/queue.json`; after editing today and the next six days, use **Save queue** to write the file directly. Commit and deploy the changed queue when it is ready to go live.
+
+The editor uses the browser's File System Access API. It receives access only to the queue file you explicitly select and does not store a password or GitHub token.
 
 ## Project status
 

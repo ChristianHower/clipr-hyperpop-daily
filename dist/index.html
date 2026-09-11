@@ -258,35 +258,8 @@
 
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
+    <script src="catalog.js"></script>
     <script>
-      const catalogIds = [
-        1008321682,
-        1953278607,
-        1191025852,
-        3492725931,
-        3484515861,
-        2853380062,
-        2028806127,
-        1247701152,
-        2041275807,
-        1629080302,
-        1027752462,
-        814851732
-      ];
-      const soundcloudLinks = {
-        1008321682: "https://soundcloud.com/1glaive/astrid",
-        1953278607: "https://soundcloud.com/ninajirachi/start-small",
-        1191025852: "https://soundcloud.com/tiffanyday/feel-alright",
-        3492725931: "https://soundcloud.com/frostchildren/flatline",
-        3484515861: "https://soundcloud.com/porter-robinson/look-at-the-sky",
-        2853380062: "https://soundcloud.com/tsunamibitchclub/burbank-house",
-        2028806127: "https://soundcloud.com/janeremover/homeswitcher-1",
-        1247701152: "https://soundcloud.com/underscores/slb",
-        2041275807: "https://soundcloud.com/brakence/deepfake",
-        1629080302: "https://soundcloud.com/ericdoa/sad4whattt-from-euphoria-an",
-        1027752462: "https://soundcloud.com/pincode8485/115-fromtheheart",
-        814851732: "https://soundcloud.com/alice-longyu-gao/rich-bitch-juice"
-      };
       let tracks = [];
 
       const clipSteps = [1, 2, 4, 7, 11, 16];
@@ -337,20 +310,35 @@
         });
       }
 
+      async function loadQueue() {
+        try {
+          const response = await fetch(`queue.json?v=${Date.now()}`, { cache: "no-store" });
+          if (!response.ok) return [];
+          const payload = await response.json();
+          return Array.isArray(payload) ? payload : (payload.days || []);
+        } catch (_) {
+          return [];
+        }
+      }
+
       async function loadCatalog() {
         try {
-          const records = await Promise.all(catalogIds.map((id) => deezerJsonp(`/track/${id}`)));
-          tracks = records.filter((track) => track.readable && track.preview).map((track) => ({
-            id: track.id,
-            artist: track.artist.name,
-            title: track.title,
-            preview: track.preview,
-            link: track.link,
-            cover: track.album?.cover_big || track.album?.cover_medium || null,
-            soundcloud: soundcloudLinks[track.id] || `https://soundcloud.com/search/sounds?q=${encodeURIComponent(`${track.artist.name} ${track.title}`)}`
-          }));
-          if (tracks.length !== catalogIds.length) throw new Error("Some previews are unavailable in this region");
-          puzzle = tracks[((dayIndex % tracks.length) + tracks.length) % tracks.length];
+          tracks = (window.CLIPR_CATALOG || []).map((track) => ({ ...track, id: Number(track.deezerId) }));
+          if (!tracks.length) throw new Error("The CLIP//R catalog is empty");
+          const queue = await loadQueue();
+          const scheduled = queue.find((entry) => entry.date === dayKey.replace("clipr-", ""));
+          const selected = tracks.find((track) => track.id === Number(scheduled?.deezerId)) || tracks[((dayIndex % tracks.length) + tracks.length) % tracks.length];
+          const record = await deezerJsonp(`/track/${selected.id}`);
+          if (!record.readable || !record.preview) throw new Error("Today’s preview is unavailable in this region");
+          puzzle = {
+            ...selected,
+            artist: record.artist?.name || selected.artist,
+            title: record.title || selected.title,
+            preview: record.preview,
+            link: record.link,
+            cover: record.album?.cover_big || record.album?.cover_medium || null,
+            soundcloud: selected.soundcloud || `https://soundcloud.com/search/sounds?q=${encodeURIComponent(`${selected.artist} ${selected.title}`)}`
+          };
           previewAudio = new Audio(puzzle.preview);
           previewAudio.preload = "auto";
           previewAudio.addEventListener("error", () => {
@@ -470,7 +458,7 @@
         if (!typed) return toast("choose a track first");
         const selected = tracks.find((track) => normalize(label(track)) === normalize(typed));
         if (!selected) return toast("pick a track from the list");
-        if (selected === puzzle) {
+        if (selected.id === puzzle.id) {
           state.over = true;
           state.won = true;
           updateStats(true);

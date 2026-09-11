@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>CLIP//R Queue Editor</title>
+    <style>
+      :root { --ink:#101010; --paper:#efefe9; --acid:#c8ff00; --blue:#4355ff; --muted:#72726c; --white:#fff; font-family:Arial,Helvetica,sans-serif; color:var(--ink); background:var(--paper); }
+      * { box-sizing:border-box; }
+      body { margin:0; min-width:320px; min-height:100vh; background:var(--paper); }
+      button, select { font:inherit; color:inherit; }
+      button:focus-visible, select:focus-visible { outline:3px solid var(--blue); outline-offset:3px; }
+      header { min-height:74px; display:flex; align-items:center; justify-content:space-between; gap:20px; padding:0 28px; border-bottom:2px solid var(--ink); }
+      .brand { font-size:1.75rem; font-weight:950; letter-spacing:-.09em; }
+      .brand span { color:var(--blue); }
+      .private { font:800 .75rem/1 monospace; letter-spacing:.12em; text-transform:uppercase; }
+      main { width:min(1040px,100%); margin:0 auto; padding:clamp(28px,6vw,72px) 20px; }
+      .eyebrow { margin:0 0 14px; font:800 .75rem/1 monospace; letter-spacing:.15em; text-transform:uppercase; }
+      h1 { max-width:760px; margin:0; font-size:clamp(3.4rem,9vw,7.6rem); line-height:.8; letter-spacing:-.085em; }
+      h1 em { color:var(--blue); font-style:normal; }
+      .intro { max-width:680px; margin:28px 0 34px; font-size:1rem; line-height:1.55; }
+      .notice { margin-bottom:24px; border:2px solid var(--ink); padding:14px 16px; background:var(--acid); font:800 .78rem/1.45 monospace; text-transform:uppercase; }
+      .queue { border:2px solid var(--ink); background:var(--white); }
+      .row { display:grid; grid-template-columns:160px minmax(0,1fr); align-items:center; gap:18px; min-height:72px; padding:12px 16px; border-bottom:1px solid #b6b6af; }
+      .row:last-child { border-bottom:0; }
+      .date strong, .date span { display:block; }
+      .date strong { font-size:.92rem; }
+      .date span { margin-top:4px; color:var(--muted); font:700 .72rem monospace; text-transform:uppercase; }
+      select { width:100%; min-height:46px; border:2px solid var(--ink); border-radius:0; background:var(--paper); padding:0 12px; font-weight:750; }
+      .actions { display:flex; flex-wrap:wrap; gap:10px; margin-top:20px; }
+      button { min-height:48px; border:2px solid var(--ink); padding:0 18px; background:var(--acid); font-weight:900; text-transform:uppercase; cursor:pointer; }
+      button.secondary { background:transparent; }
+      button:hover { background:var(--ink); color:var(--acid); }
+      .status { min-height:24px; margin-top:14px; color:var(--muted); font:750 .78rem/1.4 monospace; text-transform:uppercase; }
+      .catalog-count { margin:28px 0 0; font:800 .76rem/1.4 monospace; text-transform:uppercase; }
+      @media (max-width:640px) {
+        header { padding:0 16px; }
+        .row { grid-template-columns:1fr; gap:8px; padding:16px; }
+        h1 { font-size:clamp(3.2rem,17vw,5.4rem); }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="brand">CLIP<span>//</span>R</div>
+      <div class="private">Repository-only tool</div>
+    </header>
+    <main>
+      <p class="eyebrow">Private programming desk</p>
+      <h1>seven-day <em>queue.</em></h1>
+      <p class="intro">Choose the daily track for today and the next six days. Open the repository’s <code>dist/queue.json</code> once, make your edits, then save it directly.</p>
+      <div class="notice">This editor is outside the deployed site. It is available only from your private repository checkout and never ships with CLIP//R.</div>
+      <section class="queue" id="queue" aria-label="Upcoming seven-day song queue"></section>
+      <div class="actions">
+        <button id="openButton">open queue.json</button>
+        <button id="saveButton">save queue</button>
+        <button class="secondary" id="downloadButton">download backup</button>
+      </div>
+      <div class="status" id="status" role="status" aria-live="polite">Loading the current queue…</div>
+      <p class="catalog-count" id="catalogCount"></p>
+    </main>
+
+    <script src="../dist/catalog.js"></script>
+    <script>
+      const catalog = window.CLIPR_CATALOG || [];
+      const queueRoot = document.querySelector("#queue");
+      const status = document.querySelector("#status");
+      const rows = [];
+      let fileHandle = null;
+      let loadedDays = [];
+
+      function dateKey(date) {
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      }
+
+      function upcomingDates() {
+        const today = new Date();
+        today.setHours(12, 0, 0, 0);
+        return Array.from({ length: 7 }, (_, index) => {
+          const date = new Date(today);
+          date.setDate(today.getDate() + index);
+          return date;
+        });
+      }
+
+      function optionGroups(select) {
+        const artists = [...new Set(catalog.map((track) => track.artist))];
+        artists.forEach((artist) => {
+          const group = document.createElement("optgroup");
+          group.label = artist;
+          catalog.filter((track) => track.artist === artist).forEach((track) => {
+            const option = document.createElement("option");
+            option.value = String(track.deezerId);
+            option.textContent = track.title;
+            group.appendChild(option);
+          });
+          select.appendChild(group);
+        });
+      }
+
+      function render() {
+        queueRoot.innerHTML = "";
+        rows.length = 0;
+        upcomingDates().forEach((date, index) => {
+          const key = dateKey(date);
+          const saved = loadedDays.find((entry) => entry.date === key);
+          const fallback = catalog[index % catalog.length];
+          const row = document.createElement("div");
+          row.className = "row";
+          const dateBlock = document.createElement("div");
+          dateBlock.className = "date";
+          dateBlock.innerHTML = `<strong>${date.toLocaleDateString(undefined, { weekday: "long" })}</strong><span>${key}</span>`;
+          const select = document.createElement("select");
+          select.setAttribute("aria-label", `Song for ${key}`);
+          optionGroups(select);
+          select.value = String(saved?.deezerId || fallback?.deezerId || "");
+          row.append(dateBlock, select);
+          queueRoot.appendChild(row);
+          rows.push({ date: key, select });
+        });
+      }
+
+      function queuePayload() {
+        return {
+          version: 1,
+          updatedAt: new Date().toISOString(),
+          days: rows.map(({ date, select }) => {
+            const track = catalog.find((item) => String(item.deezerId) === select.value);
+            return { date, deezerId: track.deezerId, artist: track.artist, title: track.title };
+          })
+        };
+      }
+
+      async function loadDefault() {
+        try {
+          const response = await fetch(`../dist/queue.json?v=${Date.now()}`, { cache: "no-store" });
+          const payload = await response.json();
+          loadedDays = payload.days || [];
+          status.textContent = "Current repository queue loaded. Open queue.json to enable direct saving.";
+        } catch (_) {
+          status.textContent = "Starting a fresh seven-day queue.";
+        }
+        render();
+      }
+
+      document.querySelector("#openButton").addEventListener("click", async () => {
+        if (!window.showOpenFilePicker) return status.textContent = "Direct file editing requires Chrome or Edge on localhost.";
+        try {
+          [fileHandle] = await window.showOpenFilePicker({
+            multiple: false,
+            types: [{ description: "CLIP//R queue", accept: { "application/json": [".json"] } }]
+          });
+          const file = await fileHandle.getFile();
+          const payload = JSON.parse(await file.text());
+          loadedDays = payload.days || [];
+          render();
+          status.textContent = `${file.name} opened. Your next save will update this file directly.`;
+        } catch (error) {
+          if (error.name !== "AbortError") status.textContent = "That queue file could not be opened.";
+        }
+      });
+
+      document.querySelector("#saveButton").addEventListener("click", async () => {
+        if (!window.showSaveFilePicker) return status.textContent = "Direct file editing requires Chrome or Edge on localhost.";
+        try {
+          if (!fileHandle) {
+            fileHandle = await window.showSaveFilePicker({
+              suggestedName: "queue.json",
+              types: [{ description: "CLIP//R queue", accept: { "application/json": [".json"] } }]
+            });
+          }
+          const writable = await fileHandle.createWritable();
+          await writable.write(`${JSON.stringify(queuePayload(), null, 2)}\n`);
+          await writable.close();
+          status.textContent = "Queue saved. Commit queue.json and deploy when you are ready for it to go live.";
+        } catch (error) {
+          if (error.name !== "AbortError") status.textContent = "The queue could not be saved.";
+        }
+      });
+
+      document.querySelector("#downloadButton").addEventListener("click", () => {
+        const blob = new Blob([`${JSON.stringify(queuePayload(), null, 2)}\n`], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "queue.json";
+        link.click();
+        URL.revokeObjectURL(url);
+        status.textContent = "Backup downloaded.";
+      });
+
+      document.querySelector("#catalogCount").textContent = `${catalog.length} documented search options · ${new Set(catalog.map((track) => track.artist)).size} artists`;
+      loadDefault();
+    </script>
+  </body>
+</html>

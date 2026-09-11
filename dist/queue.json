@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "days": [
+    { "date": "2026-09-11", "deezerId": 1008321682, "artist": "glaive", "title": "astrid" },
+    { "date": "2026-09-12", "deezerId": 1953278607, "artist": "Ninajirachi", "title": "Start Small" },
+    { "date": "2026-09-13", "deezerId": 1191025852, "artist": "Tiffany Day", "title": "FEEL ALRIGHT" },
+    { "date": "2026-09-14", "deezerId": 3492725931, "artist": "Frost Children", "title": "FLATLINE" },
+    { "date": "2026-09-15", "deezerId": 3484515861, "artist": "Porter Robinson", "title": "Look at the Sky" },
+    { "date": "2026-09-16", "deezerId": 2853380062, "artist": "tsubi club", "title": "burbank house" },
+    { "date": "2026-09-17", "deezerId": 2028806127, "artist": "Jane Remover", "title": "homeswitcher" }
+  ]
+}
