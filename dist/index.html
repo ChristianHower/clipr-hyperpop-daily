@@ -59,17 +59,16 @@
       .segment:last-child { border-right: 0; }
       .segment.unlocked { box-shadow: inset 0 4px 0 var(--acid); }
       .segment.used { box-shadow: inset 0 4px 0 var(--hot); }
-      .segment::after { content: attr(data-seconds) "s"; position: absolute; right: 5px; bottom: 4px; font: 700 .65rem monospace; }
-      .segment.reveal-segment::after { color: var(--muted); }
       .playback-fill { position: absolute; z-index: 1; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, var(--acid), #eaff8a); pointer-events: none; }
       .playhead { position: absolute; z-index: 3; left: 0; top: -2px; width: 3px; height: 54px; background: var(--ink); pointer-events: none; transform: translateX(-1px); }
+      .timeline-time { min-height: 22px; margin-top: 7px; font: 800 .76rem/1.3 monospace; text-transform: uppercase; }
 
-      .transport { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 18px; margin: 18px 0 30px; }
+      .transport { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 18px; margin: 4px 0 30px; }
       .play { width: 92px; height: 92px; border: 2px solid var(--ink); border-radius: 50%; background: var(--ink); color: var(--acid); cursor: pointer; font-size: 1.6rem; box-shadow: 7px 7px 0 var(--blue); transition: transform .12s ease, box-shadow .12s ease; }
       .play:hover { transform: translate(-2px, -2px); box-shadow: 10px 10px 0 var(--blue); }
       .play:active { transform: translate(4px, 4px); box-shadow: 2px 2px 0 var(--blue); }
-      .listen-meta { display: flex; justify-content: space-between; gap: 16px; font: 700 .78rem/1.4 monospace; text-transform: uppercase; }
-      .listen-meta span:last-child { color: var(--muted); text-align: right; }
+      .listen-meta { display: flex; justify-content: flex-end; gap: 16px; font: 700 .78rem/1.4 monospace; text-transform: uppercase; }
+      .listen-meta span { color: var(--muted); text-align: right; }
 
       .guess-area { position: relative; }
       .guess-row { display: grid; grid-template-columns: 1fr auto; border: 2px solid var(--ink); background: var(--white); }
@@ -183,11 +182,11 @@
             <button class="segment reveal-segment" data-seconds="30" aria-label="Thirty seconds unlocks after reveal"></button>
             <div class="playhead" id="playhead"></div>
           </div>
+          <div class="timeline-time" id="clipLength" aria-live="polite">loading preview</div>
 
           <div class="transport">
             <button class="play" id="playButton" aria-label="Loading Deezer preview" disabled>…</button>
             <div class="listen-meta">
-              <span id="clipLength">loading preview</span>
               <span>official 30 sec preview<br />metadata by Deezer</span>
             </div>
           </div>
@@ -292,9 +291,12 @@
 
       const clipSteps = [1, 2, 4, 7, 11, 16];
       const previewDuration = 30;
-      const dayIndex = Math.floor((Date.now() - new Date("2026-01-01").getTime()) / 86400000);
-      const puzzleNo = 147 + dayIndex;
-      const dayKey = `clipr-${new Date().toISOString().slice(0, 10)}`;
+      const launchDay = Date.UTC(2026, 8, 11);
+      const now = new Date();
+      const localDay = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+      const dayIndex = Math.max(0, Math.floor((localDay - launchDay) / 86400000));
+      const puzzleNo = dayIndex + 1;
+      const dayKey = `clipr-${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
       let state = { attempts: [], over: false, won: false };
       let puzzle = null;
       let previewAudio = null;
@@ -392,7 +394,7 @@
         });
         timeline.classList.toggle("complete", state.over);
         const duration = currentDuration();
-        $("#clipLength").textContent = catalogReady ? `${String(duration).padStart(2, "0")} sec unlocked` : "loading preview";
+        $("#clipLength").textContent = catalogReady ? `${duration} second${duration === 1 ? "" : "s"}` : "loading preview";
         playButton.setAttribute("aria-label", catalogReady ? `Play ${duration} second preview` : "Loading Deezer preview");
         $("#sideCounter").textContent = `${state.attempts.length} / 6`;
         $("#attemptText").textContent = state.over ? (state.won ? "signal identified" : "transmission ended") : `${6 - state.attempts.length} attempt${state.attempts.length === 5 ? "" : "s"} left`;
