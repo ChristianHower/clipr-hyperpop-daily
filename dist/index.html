@@ -54,7 +54,7 @@
       h1 em { display: block; color: var(--blue); font-style: normal; padding-left: .48em; }
       .prompt { max-width: 560px; margin: 34px 0 24px; font-size: 1rem; line-height: 1.5; }
 
-      .timeline { position: relative; display: grid; grid-template-columns: 1fr 1fr 2fr 3fr 4fr 5fr 14fr; height: 54px; border: 2px solid var(--ink); background: var(--white); overflow: hidden; }
+      .timeline { position: relative; display: grid; grid-template-columns: .1fr .4fr .5fr 1fr 2fr 4fr 7fr 15fr; height: 54px; border: 2px solid var(--ink); background: var(--white); overflow: hidden; }
       .segment { z-index: 2; border: 0; border-right: 1px solid var(--line); background: transparent; padding: 0; position: relative; }
       .segment:last-child { border-right: 0; }
       .segment.unlocked { box-shadow: inset 0 4px 0 var(--acid); }
@@ -173,12 +173,13 @@
 
           <div class="timeline" id="timeline" aria-label="Audio preview timeline">
             <div class="playback-fill" id="playbackFill"></div>
-            <button class="segment unlocked" data-seconds="1" aria-label="One second unlocked"></button>
+            <button class="segment unlocked" data-seconds="0.1" aria-label="0.1 seconds unlocked"></button>
+            <button class="segment" data-seconds="0.5" aria-label="0.5 seconds locked"></button>
+            <button class="segment" data-seconds="1" aria-label="One second locked"></button>
             <button class="segment" data-seconds="2" aria-label="Two seconds locked"></button>
             <button class="segment" data-seconds="4" aria-label="Four seconds locked"></button>
-            <button class="segment" data-seconds="7" aria-label="Seven seconds locked"></button>
-            <button class="segment" data-seconds="11" aria-label="Eleven seconds locked"></button>
-            <button class="segment" data-seconds="16" aria-label="Sixteen seconds locked"></button>
+            <button class="segment" data-seconds="8" aria-label="Eight seconds locked"></button>
+            <button class="segment" data-seconds="15" aria-label="Fifteen seconds locked"></button>
             <button class="segment reveal-segment" data-seconds="30" aria-label="Thirty seconds unlocks after reveal"></button>
             <div class="playhead" id="playhead"></div>
           </div>
@@ -200,12 +201,12 @@
           </div>
           <div class="secondary-row">
             <button class="skip" id="skipButton" disabled>Skip</button>
-            <span class="attempts" id="attemptText">6 attempts left</span>
+            <span class="attempts" id="attemptText">7 attempts left</span>
           </div>
         </section>
 
         <aside class="sidebar" aria-label="Attempts and artist roster">
-          <div class="side-head"><h2>Transmission log</h2><span class="counter" id="sideCounter">0 / 6</span></div>
+          <div class="side-head"><h2>Transmission log</h2><span class="counter" id="sideCounter">0 / 7</span></div>
           <ol class="attempt-list" id="attemptList"></ol>
           <div class="roster">
             <p>In the rotation</p>
@@ -239,7 +240,7 @@
         <button class="close" data-close aria-label="Close">×</button>
         <span class="kicker">CLIP//R protocol</span>
         <h2 id="infoTitle">hear it.<br />clock it.</h2>
-        <p>Press play, then choose a track. Every miss unlocks more of the signal: 1, 2, 4, 7, 11, then 16 seconds. One puzzle drops each day.</p>
+        <p>Press play, then choose a track. Every miss unlocks more of the signal: 0.1, 0.5, 1, 2, 4, 8, then 15 seconds. One puzzle drops each day.</p>
         <p>Track information and the official 30-second preview load directly from Deezer. CLIP//R plays the unlocked opening segment, then unlocks the full preview after the answer is revealed.</p>
         <div class="modal-actions"><button data-close>let’s play</button></div>
       </div>
@@ -262,7 +263,8 @@
     <script>
       let tracks = [];
 
-      const clipSteps = [1, 2, 4, 7, 11, 16];
+      const clipSteps = [0.1, 0.5, 1, 2, 4, 8, 15];
+      const maxAttempts = clipSteps.length;
       const previewDuration = 30;
       const launchDay = Date.UTC(2026, 8, 11);
       const now = new Date();
@@ -368,6 +370,7 @@
 
       function currentStep() { return Math.min(state.attempts.length, clipSteps.length - 1); }
       function currentDuration() { return state.over ? previewDuration : clipSteps[currentStep()]; }
+      function formatDuration(seconds) { return `${seconds} second${seconds === 1 ? "" : "s"}`; }
       function normalize(value) { return value.toLowerCase().replace(/[^a-z0-9]/g, ""); }
       function label(track) { return `${track.artist} — ${track.title}`; }
       function persist() { localStorage.setItem(dayKey, JSON.stringify(state)); }
@@ -376,16 +379,19 @@
         const step = currentStep();
         document.querySelectorAll(".segment").forEach((segment, index) => {
           const isGameSegment = index < clipSteps.length;
-          segment.classList.toggle("unlocked", state.over || (isGameSegment && index <= step));
+          const isUnlocked = state.over || (isGameSegment && index <= step);
+          segment.classList.toggle("unlocked", isUnlocked);
           segment.classList.toggle("used", isGameSegment && Boolean(state.attempts[index]));
-          if (state.over) segment.setAttribute("aria-label", `${segment.dataset.seconds} seconds unlocked`);
+          const durationLabel = formatDuration(Number(segment.dataset.seconds));
+          segment.setAttribute("aria-label", isGameSegment ? `${durationLabel} ${isUnlocked ? "unlocked" : "locked"}` : (state.over ? `${durationLabel} unlocked` : `${durationLabel} unlocks after reveal`));
         });
         timeline.classList.toggle("complete", state.over);
         const duration = currentDuration();
-        $("#clipLength").textContent = catalogReady ? `${duration} second${duration === 1 ? "" : "s"}` : "loading preview";
-        playButton.setAttribute("aria-label", catalogReady ? `Play ${duration} second preview` : "Loading Deezer preview");
-        $("#sideCounter").textContent = `${state.attempts.length} / 6`;
-        $("#attemptText").textContent = state.over ? (state.won ? "signal identified" : "transmission ended") : `${6 - state.attempts.length} attempt${state.attempts.length === 5 ? "" : "s"} left`;
+        $("#clipLength").textContent = catalogReady ? formatDuration(duration) : "loading preview";
+        playButton.setAttribute("aria-label", catalogReady ? `Play ${formatDuration(duration)} preview` : "Loading Deezer preview");
+        $("#sideCounter").textContent = `${state.attempts.length} / ${maxAttempts}`;
+        const attemptsLeft = maxAttempts - state.attempts.length;
+        $("#attemptText").textContent = state.over ? (state.won ? "signal identified" : "transmission ended") : `${attemptsLeft} attempt${attemptsLeft === 1 ? "" : "s"} left`;
         playButton.disabled = !catalogReady;
         input.disabled = !catalogReady || state.over;
         $("#submitGuess").disabled = !catalogReady || state.over;
@@ -394,7 +400,7 @@
 
         const list = $("#attemptList");
         list.innerHTML = "";
-        for (let i = 0; i < 6; i++) {
+        for (let i = 0; i < maxAttempts; i++) {
           const item = document.createElement("li");
           const attempt = state.attempts[i];
           item.className = attempt ? (attempt.type === "skip" ? "skiprow" : "wrong") : "";
@@ -468,7 +474,7 @@
         } else {
           state.attempts.push({ type: "guess", text: label(selected) });
           input.value = "";
-          if (state.attempts.length >= 6) finishLoss();
+          if (state.attempts.length >= maxAttempts) finishLoss();
           persist();
           render();
           if (!state.over) toast("nope — more signal unlocked");
@@ -478,7 +484,7 @@
       function skip() {
         if (!catalogReady || state.over) return;
         state.attempts.push({ type: "skip", text: "Skipped" });
-        if (state.attempts.length >= 6) finishLoss();
+        if (state.attempts.length >= maxAttempts) finishLoss();
         persist();
         render();
       }
@@ -512,7 +518,7 @@
         $("#answerCover").src = puzzle.cover || "";
         $("#answerCover").alt = puzzle.cover ? `${puzzle.title} cover art` : "";
         $("#deezerLink").href = puzzle.link;
-        $("#resultCopy").textContent = state.won ? `You got it with ${clipSteps[currentStep()]} seconds of signal.` : "Come back tomorrow for another transmission.";
+        $("#resultCopy").textContent = state.won ? `You got it with ${formatDuration(clipSteps[currentStep()])} of signal.` : "Come back tomorrow for another transmission.";
         openModal("resultModal");
       }
 
@@ -592,7 +598,7 @@
       });
       $("#shareButton").addEventListener("click", async () => {
         const marks = state.attempts.map((a) => a.type === "skip" ? "⬛" : "🟥").join("") + (state.won ? "🟩" : "");
-        const result = `CLIP//R #${puzzleNo} ${state.won ? `${state.attempts.length + 1}/6` : "X/6"}\n${marks}`;
+        const result = `CLIP//R #${puzzleNo} ${state.won ? `${state.attempts.length + 1}/${maxAttempts}` : `X/${maxAttempts}`}\n${marks}`;
         try { await navigator.clipboard.writeText(result); toast("result copied"); } catch (_) { toast("copy unavailable"); }
       });
 
@@ -610,7 +616,7 @@
               return {
                 puzzleNumber: puzzleNo,
                 clipSeconds: clipSteps[currentStep()],
-                attemptsRemaining: Math.max(0, 6 - state.attempts.length),
+                attemptsRemaining: Math.max(0, maxAttempts - state.attempts.length),
                 complete: state.over,
                 won: state.over ? state.won : null,
                 choices: tracks.map((track) => ({ artist: track.artist, title: track.title }))
@@ -634,7 +640,7 @@
               if (!selected) throw new Error("Choose an artist and track from the available choices.");
               input.value = label(selected);
               submitGuess();
-              return { correct: state.over && state.won, complete: state.over, attemptsRemaining: Math.max(0, 6 - state.attempts.length), clipSeconds: clipSteps[currentStep()] };
+              return { correct: state.over && state.won, complete: state.over, attemptsRemaining: Math.max(0, maxAttempts - state.attempts.length), clipSeconds: clipSteps[currentStep()] };
             }
           },
           {
@@ -646,7 +652,7 @@
             execute() {
               if (state.over) throw new Error("Today's game is already complete.");
               skip();
-              return { complete: state.over, attemptsRemaining: Math.max(0, 6 - state.attempts.length), clipSeconds: clipSteps[currentStep()] };
+              return { complete: state.over, attemptsRemaining: Math.max(0, maxAttempts - state.attempts.length), clipSeconds: clipSteps[currentStep()] };
             }
           }
         ];
