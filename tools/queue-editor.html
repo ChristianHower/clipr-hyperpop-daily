@@ -51,7 +51,7 @@
       <h1>seven-day <em>queue.</em></h1>
       <p class="intro">Choose the daily track for today and the next six days. Open the repository’s <code>dist/queue.json</code> once, make your edits, then save it directly.</p>
       <div class="notice">This editor is outside the deployed site. It is available only from your private repository checkout and never ships with CLIP//R.</div>
-      <div class="notice">Saving only rewrites the days shown below — every earlier date already in <code>queue.json</code> is kept, since the site’s four-day archive feature reads that history.</div>
+      <div class="notice">Saving replaces the seven days shown below, keeps validated earlier history, and removes stale future dates outside this window.</div>
       <section class="queue" id="queue" aria-label="Upcoming seven-day song queue"></section>
       <div class="actions">
         <button id="openButton">open queue.json</button>
@@ -70,19 +70,54 @@
       const rows = [];
       let fileHandle = null;
       let loadedDays = [];
+      const easternTimeZone = "America/New_York";
+      const launchDateKey = "2026-09-11";
+      const millisecondsPerDay = 86400000;
 
-      function dateKey(date) {
-        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+      function todayEasternKey() {
+        const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: easternTimeZone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+        return `${parts.year}-${parts.month}-${parts.day}`;
+      }
+
+      function utcDayFromKey(key) {
+        const [year, month, day] = key.split("-").map(Number);
+        return Date.UTC(year, month - 1, day);
+      }
+
+      function dateKeyFromUtcDay(utcDay) {
+        return new Date(utcDay).toISOString().slice(0, 10);
+      }
+
+      function isDateKey(value) {
+        return /^\d{4}-\d{2}-\d{2}$/.test(value) && dateKeyFromUtcDay(utcDayFromKey(value)) === value;
       }
 
       function upcomingDates() {
-        const today = new Date();
-        today.setHours(12, 0, 0, 0);
-        return Array.from({ length: 7 }, (_, index) => {
-          const date = new Date(today);
-          date.setDate(today.getDate() + index);
-          return date;
+        const todayUtc = utcDayFromKey(todayEasternKey());
+        return Array.from({ length: 7 }, (_, index) => dateKeyFromUtcDay(todayUtc + (index * millisecondsPerDay)));
+      }
+
+      function queueDateLabel(key) {
+        return new Date(`${key}T12:00:00`).toLocaleDateString(undefined, { weekday: "long" });
+      }
+
+      function validateQueuePayload(payload) {
+        if (!payload || payload.version !== 1 || !Array.isArray(payload.days)) throw new Error("Expected a version 1 queue with a days array.");
+        const catalogById = new Map(catalog.map((track) => [Number(track.deezerId), track]));
+        const seenDates = new Set();
+        const days = payload.days.map((entry, index) => {
+          if (!entry || !isDateKey(entry.date)) throw new Error(`Entry ${index + 1} has an invalid date.`);
+          if (entry.date < launchDateKey) throw new Error(`Entry ${entry.date} predates the CLIP//R launch.`);
+          if (seenDates.has(entry.date)) throw new Error(`Entry ${entry.date} appears more than once.`);
+          const deezerId = Number(entry.deezerId);
+          const track = catalogById.get(deezerId);
+          if (!track) throw new Error(`Entry ${entry.date} uses an unknown catalog track.`);
+          if (typeof entry.artist !== "string" || !entry.artist.trim() || typeof entry.title !== "string" || !entry.title.trim()) throw new Error(`Entry ${entry.date} is missing artist or title text.`);
+          if (entry.artist !== track.artist || entry.title !== track.title) throw new Error(`Entry ${entry.date} does not match the catalog metadata for Deezer ID ${deezerId}.`);
+          seenDates.add(entry.date);
+          return { date: entry.date, deezerId, artist: track.artist, title: track.title };
         });
+        return days.sort((a, b) => a.date.localeCompare(b.date));
       }
 
       function optionGroups(select) {
@@ -103,15 +138,14 @@
       function render() {
         queueRoot.innerHTML = "";
         rows.length = 0;
-        upcomingDates().forEach((date, index) => {
-          const key = dateKey(date);
+        upcomingDates().forEach((key, index) => {
           const saved = loadedDays.find((entry) => entry.date === key);
           const fallback = catalog[index % catalog.length];
           const row = document.createElement("div");
           row.className = "row";
           const dateBlock = document.createElement("div");
           dateBlock.className = "date";
-          dateBlock.innerHTML = `<strong>${date.toLocaleDateString(undefined, { weekday: "long" })}</strong><span>${key}</span>`;
+          dateBlock.innerHTML = `<strong>${queueDateLabel(key)}</strong><span>${key}</span>`;
           const select = document.createElement("select");
           select.setAttribute("aria-label", `Song for ${key}`);
           optionGroups(select);
@@ -127,8 +161,8 @@
           const track = catalog.find((item) => String(item.deezerId) === select.value);
           return { date, deezerId: track.deezerId, artist: track.artist, title: track.title };
         });
-        const editedDates = new Set(edited.map((entry) => entry.date));
-        const retained = loadedDays.filter((entry) => !editedDates.has(entry.date));
+        const firstEditedDate = edited[0]?.date;
+        const retained = loadedDays.filter((entry) => entry.date < firstEditedDate);
         const days = [...retained, ...edited].sort((a, b) => a.date.localeCompare(b.date));
         return { version: 1, updatedAt: new Date().toISOString(), days };
       }
@@ -137,10 +171,11 @@
         try {
           const response = await fetch(`../dist/queue.json?v=${Date.now()}`, { cache: "no-store" });
           const payload = await response.json();
-          loadedDays = payload.days || [];
+          loadedDays = validateQueuePayload(payload);
           status.textContent = "Current repository queue loaded. Open queue.json to enable direct saving.";
-        } catch (_) {
-          status.textContent = "Starting a fresh seven-day queue.";
+        } catch (error) {
+          loadedDays = [];
+          status.textContent = `Repository queue rejected: ${error.message}`;
         }
         render();
       }
@@ -154,12 +189,12 @@
           });
           const file = await fileHandle.getFile();
           const payload = JSON.parse(await file.text());
-          loadedDays = payload.days || [];
+          loadedDays = validateQueuePayload(payload);
           render();
           renderCatalogCount();
           status.textContent = `${file.name} opened. Your next save will update this file directly.`;
         } catch (error) {
-          if (error.name !== "AbortError") status.textContent = "That queue file could not be opened.";
+          if (error.name !== "AbortError") status.textContent = `That queue file was rejected: ${error.message}`;
         }
       });
 

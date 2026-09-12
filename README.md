@@ -14,7 +14,7 @@ The rotation focuses on hyperpop and adjacent internet-pop scenes. See [CATALOG.
 
 - Track metadata, artwork, and preview audio load from Deezer.
 - SoundCloud links take listeners to the corresponding track after the answer is revealed.
-- Daily progress and statistics stay in the browser using local storage.
+- Daily progress, archive progress, and statistics stay in the browser using local storage. Archive results do not change daily win-rate or streak statistics.
 - The daily puzzle changes at midnight Eastern time.
 - Players can open the archive (the clock icon) to play any of the previous four days they haven't completed yet, using the same rules as the daily puzzle.
 - Player feedback is collected through the public [CLIP//R feedback form](https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform).
@@ -38,7 +38,7 @@ Run the repository root locally:
 python3 -m http.server 4173
 ```
 
-Then open `http://localhost:4173/tools/queue-editor.html` in Chrome or Edge. Use **Open queue.json** to select `dist/queue.json`; after editing today and the next six days, use **Save queue** to write the file directly. Saving only replaces the seven days shown in the editor — every earlier date already in `queue.json` is kept, since the game's four-day archive reads that history to know what actually ran. Commit and deploy the changed queue when it is ready to go live.
+Then open `http://localhost:4173/tools/queue-editor.html` in Chrome or Edge. Use **Open queue.json** to select `dist/queue.json`; after editing today and the next six days, use **Save queue** to write the file directly. The editor uses Eastern dates, validates every retained entry against the catalog, keeps earlier queue history, and replaces the entire upcoming seven-day window so stale future schedules cannot survive invisibly. Commit and deploy the changed queue when it is ready to go live.
 
 The editor uses the browser's File System Access API. It receives access only to the queue file you explicitly select and does not store a password or GitHub token.
 

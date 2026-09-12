@@ -1,7 +1,13 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-12T15:57:41Z",
+  "updatedAt": "2026-09-12T22:21:59Z",
   "days": [
+    {
+      "date": "2026-09-11",
+      "deezerId": 3492057651,
+      "artist": "glaive",
+      "title": "Appalachia"
+    },
     {
       "date": "2026-09-12",
       "deezerId": 4004216421,

@@ -115,6 +115,7 @@
       .attempt-list li.near .mark { color: var(--yellow); }
       .attempt-list li.skiprow .mark { color: var(--acid); }
       .transmission-answer { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 14px; align-items: center; margin-top: auto; padding: 18px; border-top: 2px solid var(--acid); background: #1d1d1d; color: var(--paper); text-decoration: none; transition: background .15s ease, color .15s ease; }
+      .transmission-answer[hidden] { display: none; }
       .transmission-answer:hover { background: var(--acid); color: var(--ink); }
       .transmission-cover { display: block; width: 74px; aspect-ratio: 1; object-fit: cover; border: 1px solid var(--paper); background: #3b3b3b; }
       .transmission-copy { min-width: 0; }
@@ -291,7 +292,7 @@
         <span class="kicker">Local stats</span>
         <h2 id="statsTitle">your<br />signal.</h2>
         <div class="answer"><strong id="statsLine">0 played · 0% win rate</strong><span id="streakLine">Current streak: 0</span></div>
-        <p>Your stats stay in this browser.</p>
+        <p>Daily stats stay in this browser. Archived transmissions don’t change your streak.</p>
         <div class="modal-actions"><button data-close>back to game</button></div>
       </div>
     </div>
@@ -307,6 +308,7 @@
       const previewDuration = 30;
       const launchDay = Date.UTC(2026, 8, 11);
       const maxArchiveDays = 4;
+      const millisecondsPerDay = 86400000;
 
       function todayEasternKey() {
         const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
@@ -316,6 +318,14 @@
       function utcDayFromKey(dateKey) {
         const [year, month, day] = dateKey.split("-").map(Number);
         return Date.UTC(year, month - 1, day);
+      }
+
+      function dateKeyFromUtcDay(utcDay) {
+        return new Date(utcDay).toISOString().slice(0, 10);
+      }
+
+      function isDateKey(value) {
+        return /^\d{4}-\d{2}-\d{2}$/.test(value) && dateKeyFromUtcDay(utcDayFromKey(value)) === value;
       }
 
       function dayInfoFor(dateKey) {
@@ -340,6 +350,7 @@
       let submittingGuess = false;
       let agentToolsRegistered = false;
       let queueDays = [];
+      let puzzleLoadRun = 0;
       const trackMetadata = new Map();
 
       const $ = (selector) => document.querySelector(selector);
@@ -358,6 +369,9 @@
         const isToday = activeDay.dateKey === todayKey;
         const banner = $("#archiveBanner");
         banner.hidden = isToday;
+        $(".prompt").textContent = isToday
+          ? "Identify today’s track in as few seconds as possible. A wrong guess or skip unlocks a longer clip."
+          : "Identify this archived track in as few seconds as possible. A wrong guess or skip unlocks a longer clip.";
         if (!isToday) {
           const label = new Date(`${activeDay.dateKey}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
           $("#archiveBannerText").textContent = `Replaying ${label}`;
@@ -384,34 +398,79 @@
         });
       }
 
+      async function getTrackMetadata(trackId) {
+        if (trackMetadata.has(trackId)) return trackMetadata.get(trackId);
+        const request = deezerJsonp(`/track/${trackId}`).catch((error) => {
+          trackMetadata.delete(trackId);
+          throw error;
+        });
+        trackMetadata.set(trackId, request);
+        const record = await request;
+        trackMetadata.set(trackId, record);
+        return record;
+      }
+
+      function validatedQueueDays(value) {
+        if (!Array.isArray(value)) return [];
+        const catalogIds = new Set((window.CLIPR_CATALOG || []).map((track) => Number(track.deezerId)));
+        const seenDates = new Set();
+        return value.filter((entry) => {
+          const valid = entry && isDateKey(entry.date) && utcDayFromKey(entry.date) >= launchDay &&
+            Number.isFinite(Number(entry.deezerId)) && catalogIds.has(Number(entry.deezerId)) &&
+            typeof entry.artist === "string" && entry.artist.trim() &&
+            typeof entry.title === "string" && entry.title.trim() && !seenDates.has(entry.date);
+          if (!valid) console.warn("Ignoring invalid CLIP//R queue entry", entry);
+          else seenDates.add(entry.date);
+          return Boolean(valid);
+        }).sort((a, b) => a.date.localeCompare(b.date));
+      }
+
       async function loadQueue() {
         try {
           const response = await fetch(`queue.json?v=${Date.now()}`, { cache: "no-store" });
           if (!response.ok) return [];
           const payload = await response.json();
-          return Array.isArray(payload) ? payload : (payload.days || []);
+          return validatedQueueDays(Array.isArray(payload) ? payload : payload.days);
         } catch (_) {
           return [];
         }
       }
 
       async function loadPuzzle(dateKey) {
+        if (!isDateKey(dateKey) || utcDayFromKey(dateKey) < launchDay || utcDayFromKey(dateKey) > utcDayFromKey(todayKey)) {
+          toast("that transmission is unavailable");
+          return;
+        }
+        const loadRun = ++puzzleLoadRun;
         stopPreview();
         catalogReady = false;
+        submittingGuess = false;
         activeDay = dayInfoFor(dateKey);
         state = loadState(activeDay.dayKey);
         puzzle = null;
+        input.value = "";
+        input.placeholder = "Loading track catalog…";
+        suggestions.innerHTML = "";
+        suggestions.classList.remove("open");
+        suggestionIndex = -1;
+        $("#transmissionAnswer").hidden = true;
+        $("#transmissionAnswer").removeAttribute("href");
+        $("#transmissionCover").removeAttribute("src");
+        $("#transmissionCover").alt = "";
+        $("#transmissionTitle").textContent = "";
+        $("#transmissionArtist").textContent = "";
+        $("#resultModal").classList.remove("open");
         updateModeUI();
-        input.placeholder = "Loading today’s catalog…";
         render();
         try {
           tracks = (window.CLIPR_CATALOG || []).map((track) => ({ ...track, id: Number(track.deezerId) }));
           if (!tracks.length) throw new Error("The CLIP//R catalog is empty");
           const scheduled = queueDays.find((entry) => entry.date === dateKey);
-          const selected = tracks.find((track) => track.id === Number(scheduled?.deezerId)) || tracks[((activeDay.dayIndex % tracks.length) + tracks.length) % tracks.length];
-          const record = await deezerJsonp(`/track/${selected.id}`);
+          const requestedDay = dayInfoFor(dateKey);
+          const selected = tracks.find((track) => track.id === Number(scheduled?.deezerId)) || tracks[((requestedDay.dayIndex % tracks.length) + tracks.length) % tracks.length];
+          const record = await getTrackMetadata(selected.id);
+          if (loadRun !== puzzleLoadRun || activeDay.dateKey !== dateKey) return;
           if (!record.readable || !record.preview) throw new Error("This transmission’s preview is unavailable in this region");
-          trackMetadata.set(selected.id, record);
           puzzle = {
             ...selected,
             artist: record.artist?.name || selected.artist,
@@ -428,16 +487,20 @@
           previewAudio = new Audio(puzzle.preview);
           previewAudio.preload = "auto";
           previewAudio.addEventListener("error", () => {
+            if (loadRun !== puzzleLoadRun) return;
             stopPreview();
-            toast("today’s Deezer preview is unavailable");
+            toast("this transmission’s Deezer preview is unavailable");
           });
           catalogReady = true;
           input.placeholder = "Search artist or track…";
           playButton.textContent = "▶";
           render();
           if (!agentToolsRegistered) { registerAgentTools(); agentToolsRegistered = true; }
-          if (state.over) setTimeout(reveal, 250);
+          if (state.over) setTimeout(() => {
+            if (loadRun === puzzleLoadRun && activeDay.dateKey === dateKey && state.over) reveal();
+          }, 250);
         } catch (error) {
+          if (loadRun !== puzzleLoadRun || activeDay.dateKey !== dateKey) return;
           $("#clipLength").textContent = "preview unavailable";
           input.placeholder = "Deezer catalog unavailable";
           toast(error.message || "Deezer catalog unavailable");
@@ -449,7 +512,7 @@
       function formatDuration(seconds) { return `${seconds} second${seconds === 1 ? "" : "s"}`; }
       function normalize(value) { return value.toLowerCase().replace(/[^a-z0-9]/g, ""); }
       function label(track) { return `${track.artist} — ${track.title}`; }
-      function persist() { localStorage.setItem(activeDay.dayKey, JSON.stringify(state)); }
+      function persist(day = activeDay, gameState = state) { localStorage.setItem(day.dayKey, JSON.stringify(gameState)); }
 
       function artistIds(record) {
         return [...new Set([record.artist?.id, ...(record.contributors || []).map((artist) => artist.id)].map(Number).filter(Number.isFinite))];
@@ -464,16 +527,12 @@
         return right.some((value) => values.has(value));
       }
 
-      async function classifyGuess(track) {
-        let record = trackMetadata.get(track.id);
-        if (!record) {
-          record = await deezerJsonp(`/track/${track.id}`);
-          trackMetadata.set(track.id, record);
-        }
+      async function classifyGuess(track, targetPuzzle) {
+        const record = await getTrackMetadata(track.id);
         const guessedAlbumId = Number(record.album?.id) || null;
         const guessedAlbumKey = normalize(record.album?.title || "");
-        if ((puzzle.albumId && guessedAlbumId === puzzle.albumId) || (puzzle.albumKey && guessedAlbumKey === puzzle.albumKey)) return "album";
-        if (sharesValue(puzzle.artistIds, artistIds(record)) || sharesValue(puzzle.artistKeys, artistKeys(record, track.artist))) return "artist";
+        if ((targetPuzzle.albumId && guessedAlbumId === targetPuzzle.albumId) || (targetPuzzle.albumKey && guessedAlbumKey === targetPuzzle.albumKey)) return "album";
+        if (sharesValue(targetPuzzle.artistIds, artistIds(record)) || sharesValue(targetPuzzle.artistKeys, artistKeys(record, track.artist))) return "artist";
         return "guess";
       }
 
@@ -577,6 +636,10 @@
 
       async function submitGuess() {
         if (!catalogReady || state.over || submittingGuess) return;
+        const submissionRun = puzzleLoadRun;
+        const submissionDay = activeDay;
+        const submissionState = state;
+        const submissionPuzzle = puzzle;
         const typed = input.value.trim();
         if (!typed) return toast("choose a track first");
         const selected = tracks.find((track) => normalize(label(track)) === normalize(typed));
@@ -593,12 +656,13 @@
           suggestions.classList.remove("open");
           render();
           let guessType = "guess";
-          try { guessType = await classifyGuess(selected); } catch (_) {}
+          try { guessType = await classifyGuess(selected, submissionPuzzle); } catch (_) {}
+          if (submissionRun !== puzzleLoadRun || activeDay.dayKey !== submissionDay.dayKey || state !== submissionState) return;
           submittingGuess = false;
-          state.attempts.push({ type: guessType, text: label(selected) });
+          submissionState.attempts.push({ type: guessType, text: label(selected) });
           input.value = "";
-          if (state.attempts.length >= maxAttempts) finishLoss();
-          persist();
+          if (submissionState.attempts.length >= maxAttempts) finishLoss();
+          persist(submissionDay, submissionState);
           render();
           if (!state.over) {
             if (guessType === "album") toast("same album — more signal unlocked");
@@ -620,22 +684,29 @@
         state.over = true;
         state.won = false;
         updateStats(false);
-        setTimeout(reveal, 180);
+        const lossRun = puzzleLoadRun;
+        const lossDayKey = activeDay.dayKey;
+        setTimeout(() => {
+          if (lossRun === puzzleLoadRun && activeDay.dayKey === lossDayKey && state.over) reveal();
+        }, 180);
       }
 
       function updateStats(won) {
+        if (activeDay.dateKey !== todayKey) return;
         let stats = { played: 0, wins: 0, streak: 0, lastDay: null };
         try { stats = { ...stats, ...JSON.parse(localStorage.getItem("clipr-stats") || "{}") }; } catch (_) {}
         if (stats.lastDay === activeDay.dayKey) return;
+        const lastDateKey = typeof stats.lastDay === "string" ? stats.lastDay.replace(/^clipr-/, "") : null;
+        const yesterdayKey = dateKeyFromUtcDay(utcDayFromKey(activeDay.dateKey) - millisecondsPerDay);
         stats.played += 1;
         stats.wins += won ? 1 : 0;
-        stats.streak = won ? stats.streak + 1 : 0;
+        stats.streak = won ? (lastDateKey === yesterdayKey ? stats.streak + 1 : 1) : 0;
         stats.lastDay = activeDay.dayKey;
         localStorage.setItem("clipr-stats", JSON.stringify(stats));
       }
 
       function reveal() {
-        if (!puzzle) return;
+        if (!puzzle || !state.over) return;
         $("#resultKicker").textContent = state.won ? "Signal found" : "Signal lost";
         $("#resultTitle").textContent = state.won ? "nailed it." : "too loud.";
         $("#answerTrack").textContent = puzzle.title;
@@ -652,7 +723,9 @@
         $("#transmissionAnswer").setAttribute("aria-label", `Open ${puzzle.artist} — ${puzzle.title} on SoundCloud`);
         $("#transmissionAnswer").hidden = false;
         $("#deezerLink").href = puzzle.link;
-        $("#resultCopy").textContent = state.won ? `You got it with ${formatDuration(clipSteps[currentStep()])} of signal.` : "Come back tomorrow for another transmission.";
+        $("#resultCopy").textContent = state.won
+          ? `You got it with ${formatDuration(clipSteps[currentStep()])} of signal.`
+          : (activeDay.dateKey === todayKey ? "Come back tomorrow for another transmission." : "Return to the archive or try today’s transmission.");
         openModal("resultModal");
       }
 
@@ -727,7 +800,7 @@
         let stats = { played: 0, wins: 0, streak: 0 };
         try { stats = { ...stats, ...JSON.parse(localStorage.getItem("clipr-stats") || "{}") }; } catch (_) {}
         const rate = stats.played ? Math.round((stats.wins / stats.played) * 100) : 0;
-        $("#statsLine").textContent = `${stats.played} played · ${rate}% win rate`;
+        $("#statsLine").textContent = `${stats.played} daily games · ${rate}% win rate`;
         $("#streakLine").textContent = `Current streak: ${stats.streak}`;
         openModal("statsModal");
       });
@@ -743,12 +816,14 @@
         const tools = [
           {
             name: "get_daily_game_state",
-            title: "Get daily game state",
-            description: "Read today's CLIP//R puzzle number, unlocked clip length, remaining attempts, and available track choices without revealing the answer.",
+            title: "Get active game state",
+            description: "Read the active CLIP//R puzzle's date, mode, number, unlocked clip length, remaining attempts, and available track choices without revealing the answer.",
             inputSchema: { type: "object", properties: {}, additionalProperties: false },
             annotations: { readOnlyHint: true, untrustedContentHint: false },
             execute() {
               return {
+                dateKey: activeDay.dateKey,
+                mode: activeDay.dateKey === todayKey ? "daily" : "archive",
                 puzzleNumber: activeDay.puzzleNo,
                 clipSeconds: clipSteps[currentStep()],
                 attemptsRemaining: Math.max(0, maxAttempts - state.attempts.length),
@@ -761,7 +836,7 @@
           {
             name: "submit_track_guess",
             title: "Submit track guess",
-            description: "Submit one artist and track combination as the next guess in today's CLIP//R game.",
+            description: "Submit one artist and track combination as the next guess in the active CLIP//R game.",
             inputSchema: {
               type: "object",
               properties: { artist: { type: "string" }, title: { type: "string" } },
@@ -770,24 +845,26 @@
             },
             annotations: { readOnlyHint: false, untrustedContentHint: false },
             async execute(value) {
-              if (state.over) throw new Error("Today's game is already complete.");
+              if (state.over) throw new Error("The active game is already complete.");
+              const requestedDayKey = activeDay.dayKey;
               const selected = tracks.find((track) => normalize(track.artist) === normalize(value?.artist || "") && normalize(track.title) === normalize(value?.title || ""));
               if (!selected) throw new Error("Choose an artist and track from the available choices.");
               input.value = label(selected);
               await submitGuess();
-              return { correct: state.over && state.won, complete: state.over, attemptsRemaining: Math.max(0, maxAttempts - state.attempts.length), clipSeconds: clipSteps[currentStep()] };
+              if (activeDay.dayKey !== requestedDayKey) throw new Error("The active puzzle changed before the guess finished.");
+              return { dateKey: activeDay.dateKey, mode: activeDay.dateKey === todayKey ? "daily" : "archive", correct: state.over && state.won, complete: state.over, attemptsRemaining: Math.max(0, maxAttempts - state.attempts.length), clipSeconds: clipSteps[currentStep()] };
             }
           },
           {
             name: "skip_game_attempt",
             title: "Skip game attempt",
-            description: "Use one attempt to unlock a longer audio preview in today's CLIP//R game.",
+            description: "Use one attempt to unlock a longer audio preview in the active CLIP//R game.",
             inputSchema: { type: "object", properties: {}, additionalProperties: false },
             annotations: { readOnlyHint: false, untrustedContentHint: false },
             execute() {
-              if (state.over) throw new Error("Today's game is already complete.");
+              if (state.over) throw new Error("The active game is already complete.");
               skip();
-              return { complete: state.over, attemptsRemaining: Math.max(0, maxAttempts - state.attempts.length), clipSeconds: clipSteps[currentStep()] };
+              return { dateKey: activeDay.dateKey, mode: activeDay.dateKey === todayKey ? "daily" : "archive", complete: state.over, attemptsRemaining: Math.max(0, maxAttempts - state.attempts.length), clipSeconds: clipSteps[currentStep()] };
             }
           }
         ];
@@ -802,12 +879,9 @@
 
       function buildArchiveEntries() {
         const todayUtc = utcDayFromKey(todayKey);
-        return queueDays
-          .filter((entry) => {
-            const diffDays = Math.round((todayUtc - utcDayFromKey(entry.date)) / 86400000);
-            return diffDays > 0 && diffDays <= maxArchiveDays;
-          })
-          .sort((a, b) => b.date.localeCompare(a.date));
+        return Array.from({ length: maxArchiveDays }, (_, index) => ({
+          date: dateKeyFromUtcDay(todayUtc - ((index + 1) * millisecondsPerDay))
+        })).filter((entry) => utcDayFromKey(entry.date) >= launchDay);
       }
 
       function renderArchiveList() {
