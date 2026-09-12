@@ -51,6 +51,7 @@
       <h1>seven-day <em>queue.</em></h1>
       <p class="intro">Choose the daily track for today and the next six days. Open the repository’s <code>dist/queue.json</code> once, make your edits, then save it directly.</p>
       <div class="notice">This editor is outside the deployed site. It is available only from your private repository checkout and never ships with CLIP//R.</div>
+      <div class="notice">Saving only rewrites the days shown below — every earlier date already in <code>queue.json</code> is kept, since the site’s four-day archive feature reads that history.</div>
       <section class="queue" id="queue" aria-label="Upcoming seven-day song queue"></section>
       <div class="actions">
         <button id="openButton">open queue.json</button>
@@ -122,14 +123,14 @@
       }
 
       function queuePayload() {
-        return {
-          version: 1,
-          updatedAt: new Date().toISOString(),
-          days: rows.map(({ date, select }) => {
-            const track = catalog.find((item) => String(item.deezerId) === select.value);
-            return { date, deezerId: track.deezerId, artist: track.artist, title: track.title };
-          })
-        };
+        const edited = rows.map(({ date, select }) => {
+          const track = catalog.find((item) => String(item.deezerId) === select.value);
+          return { date, deezerId: track.deezerId, artist: track.artist, title: track.title };
+        });
+        const editedDates = new Set(edited.map((entry) => entry.date));
+        const retained = loadedDays.filter((entry) => !editedDates.has(entry.date));
+        const days = [...retained, ...edited].sort((a, b) => a.date.localeCompare(b.date));
+        return { version: 1, updatedAt: new Date().toISOString(), days };
       }
 
       async function loadDefault() {
@@ -155,6 +156,7 @@
           const payload = JSON.parse(await file.text());
           loadedDays = payload.days || [];
           render();
+          renderCatalogCount();
           status.textContent = `${file.name} opened. Your next save will update this file directly.`;
         } catch (error) {
           if (error.name !== "AbortError") status.textContent = "That queue file could not be opened.";
@@ -170,10 +172,13 @@
               types: [{ description: "CLIP//R queue", accept: { "application/json": [".json"] } }]
             });
           }
+          const payload = queuePayload();
           const writable = await fileHandle.createWritable();
-          await writable.write(`${JSON.stringify(queuePayload(), null, 2)}\n`);
+          await writable.write(`${JSON.stringify(payload, null, 2)}\n`);
           await writable.close();
-          status.textContent = "Queue saved. Commit queue.json and deploy when you are ready for it to go live.";
+          loadedDays = payload.days;
+          renderCatalogCount();
+          status.textContent = `Queue saved (${payload.days.length} days retained in history). Commit queue.json and deploy when you are ready for it to go live.`;
         } catch (error) {
           if (error.name !== "AbortError") status.textContent = "The queue could not be saved.";
         }
@@ -190,8 +195,11 @@
         status.textContent = "Backup downloaded.";
       });
 
-      document.querySelector("#catalogCount").textContent = `${catalog.length} documented search options · ${new Set(catalog.map((track) => track.artist)).size} artists`;
-      loadDefault();
+      function renderCatalogCount() {
+        document.querySelector("#catalogCount").textContent = `${catalog.length} documented search options · ${new Set(catalog.map((track) => track.artist)).size} artists · ${loadedDays.length} days retained in queue.json`;
+      }
+
+      loadDefault().then(renderCatalogCount);
     </script>
   </body>
 </html>

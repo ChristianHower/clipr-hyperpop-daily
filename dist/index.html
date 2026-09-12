@@ -55,6 +55,19 @@
       h1 em { display: block; color: var(--blue); font-style: normal; }
       .prompt { max-width: 560px; margin: 34px 0 24px; font-size: 1rem; line-height: 1.5; }
 
+      .archive-banner { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 20px; padding: 10px 14px; border: 2px solid var(--ink); background: var(--acid); font: 800 .74rem/1.3 monospace; text-transform: uppercase; }
+      .archive-banner[hidden] { display: none; }
+      .archive-banner button { border: 2px solid var(--ink); background: var(--paper); padding: 6px 12px; font-weight: 900; cursor: pointer; text-transform: uppercase; }
+      .archive-banner button:hover { background: var(--ink); color: var(--acid); }
+      .archive-list { list-style: none; margin: 0 0 20px; padding: 0; border: 2px solid var(--ink); background: var(--white); max-height: 260px; overflow-y: auto; }
+      .archive-row { border-bottom: 1px solid var(--line); }
+      .archive-row:last-child { border-bottom: 0; }
+      .archive-row .row-inner, .archive-row button { display: flex; justify-content: space-between; align-items: center; width: 100%; border: 0; background: transparent; padding: 14px 16px; font: 700 .82rem/1.3 monospace; text-transform: uppercase; text-align: left; }
+      .archive-row button { cursor: pointer; }
+      .archive-row button:hover { background: var(--acid); }
+      .archive-status { color: var(--muted); }
+      .archive-empty { padding: 16px; color: var(--muted); font: 700 .78rem monospace; text-transform: uppercase; }
+
       .timeline { position: relative; display: grid; grid-template-columns: .5fr .5fr 1fr 2fr 4fr 8fr; height: 54px; border: 2px solid var(--ink); background: var(--white); overflow: hidden; }
       .segment { z-index: 2; border: 0; border-right: 1px solid var(--line); background: transparent; padding: 0; position: relative; }
       .segment:last-child { border-right: 0; }
@@ -170,6 +183,7 @@
         <div class="brand" aria-label="Clipper">CLIP<span>//</span>R</div>
         <div class="edition">Internet/electronic pop daily</div>
         <nav class="top-actions" aria-label="Game options">
+          <button class="icon-btn" id="archiveButton" aria-label="Past transmissions">◷</button>
           <button class="icon-btn" id="helpButton" aria-label="How to play">?</button>
           <button class="icon-btn" id="statsButton" aria-label="View statistics">%</button>
         </nav>
@@ -180,6 +194,10 @@
           <p class="eyebrow">Daily transmission <span id="puzzleNumber">#0147</span></p>
           <h1 id="game-title">guess the <em>song.</em></h1>
           <p class="prompt">Identify today’s track in as few seconds as possible. A wrong guess or skip unlocks a longer clip.</p>
+          <div class="archive-banner" id="archiveBanner" hidden>
+            <span id="archiveBannerText"></span>
+            <button type="button" id="archiveBackButton">back to today</button>
+          </div>
 
           <div class="timeline" id="timeline" aria-label="Audio preview timeline">
             <div class="playback-fill" id="playbackFill"></div>
@@ -225,7 +243,7 @@
 
       <footer>
         <span>New track at midnight EST</span>
-        <span class="footer-center">CLIP//R v0.5 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
+        <span class="footer-center">CLIP//R v0.6 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
         <span class="footer-credit">Preview audio and metadata from <a href="https://www.deezer.com" target="_blank" rel="noopener">Deezer</a></span>
       </footer>
     </div>
@@ -256,6 +274,17 @@
       </div>
     </div>
 
+    <div class="modal" id="archiveModal" role="dialog" aria-modal="true" aria-labelledby="archiveTitle">
+      <div class="card">
+        <button class="close" data-close aria-label="Close">×</button>
+        <span class="kicker">Signal archive</span>
+        <h2 id="archiveTitle">past<br />transmissions.</h2>
+        <p>Play up to four previous days you haven’t completed yet.</p>
+        <ul class="archive-list" id="archiveList"></ul>
+        <div class="modal-actions"><button data-close>close</button></div>
+      </div>
+    </div>
+
     <div class="modal" id="statsModal" role="dialog" aria-modal="true" aria-labelledby="statsTitle">
       <div class="card">
         <button class="close" data-close aria-label="Close">×</button>
@@ -277,21 +306,41 @@
       const maxAttempts = clipSteps.length;
       const previewDuration = 30;
       const launchDay = Date.UTC(2026, 8, 11);
-      const now = new Date();
-      const easternDateParts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(now).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
-      const easternDay = Date.UTC(Number(easternDateParts.year), Number(easternDateParts.month) - 1, Number(easternDateParts.day));
-      const dayIndex = Math.max(0, Math.floor((easternDay - launchDay) / 86400000));
-      const puzzleNo = dayIndex + 1;
-      const dayKey = `clipr-${easternDateParts.year}-${easternDateParts.month}-${easternDateParts.day}`;
-      let state = { attempts: [], over: false, won: false };
+      const maxArchiveDays = 4;
+
+      function todayEasternKey() {
+        const parts = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()).filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+        return `${parts.year}-${parts.month}-${parts.day}`;
+      }
+
+      function utcDayFromKey(dateKey) {
+        const [year, month, day] = dateKey.split("-").map(Number);
+        return Date.UTC(year, month - 1, day);
+      }
+
+      function dayInfoFor(dateKey) {
+        const dayIndex = Math.max(0, Math.floor((utcDayFromKey(dateKey) - launchDay) / 86400000));
+        return { dateKey, dayKey: `clipr-${dateKey}`, dayIndex, puzzleNo: dayIndex + 1 };
+      }
+
+      function loadState(dayKey) {
+        let loaded = { attempts: [], over: false, won: false };
+        try { loaded = { ...loaded, ...JSON.parse(localStorage.getItem(dayKey) || "{}") }; } catch (_) {}
+        return loaded;
+      }
+
+      const todayKey = todayEasternKey();
+      let activeDay = dayInfoFor(todayKey);
+      let state = loadState(activeDay.dayKey);
       let puzzle = null;
       let previewAudio = null;
       let previewTimer = null;
       let playbackRun = 0;
       let catalogReady = false;
       let submittingGuess = false;
+      let agentToolsRegistered = false;
+      let queueDays = [];
       const trackMetadata = new Map();
-      try { state = { ...state, ...JSON.parse(localStorage.getItem(dayKey) || "{}") }; } catch (_) {}
 
       const $ = (selector) => document.querySelector(selector);
       const input = $("#guessInput");
@@ -304,7 +353,17 @@
       let playing = false;
       let suggestionIndex = -1;
 
-      $("#puzzleNumber").textContent = `#${String(puzzleNo).padStart(4, "0")}`;
+      function updateModeUI() {
+        $("#puzzleNumber").textContent = `#${String(activeDay.puzzleNo).padStart(4, "0")}`;
+        const isToday = activeDay.dateKey === todayKey;
+        const banner = $("#archiveBanner");
+        banner.hidden = isToday;
+        if (!isToday) {
+          const label = new Date(`${activeDay.dateKey}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+          $("#archiveBannerText").textContent = `Replaying ${label}`;
+        }
+      }
+      updateModeUI();
 
       function deezerJsonp(path) {
         return new Promise((resolve, reject) => {
@@ -336,15 +395,22 @@
         }
       }
 
-      async function loadCatalog() {
+      async function loadPuzzle(dateKey) {
+        stopPreview();
+        catalogReady = false;
+        activeDay = dayInfoFor(dateKey);
+        state = loadState(activeDay.dayKey);
+        puzzle = null;
+        updateModeUI();
+        input.placeholder = "Loading today’s catalog…";
+        render();
         try {
           tracks = (window.CLIPR_CATALOG || []).map((track) => ({ ...track, id: Number(track.deezerId) }));
           if (!tracks.length) throw new Error("The CLIP//R catalog is empty");
-          const queue = await loadQueue();
-          const scheduled = queue.find((entry) => entry.date === dayKey.replace("clipr-", ""));
-          const selected = tracks.find((track) => track.id === Number(scheduled?.deezerId)) || tracks[((dayIndex % tracks.length) + tracks.length) % tracks.length];
+          const scheduled = queueDays.find((entry) => entry.date === dateKey);
+          const selected = tracks.find((track) => track.id === Number(scheduled?.deezerId)) || tracks[((activeDay.dayIndex % tracks.length) + tracks.length) % tracks.length];
           const record = await deezerJsonp(`/track/${selected.id}`);
-          if (!record.readable || !record.preview) throw new Error("Today’s preview is unavailable in this region");
+          if (!record.readable || !record.preview) throw new Error("This transmission’s preview is unavailable in this region");
           trackMetadata.set(selected.id, record);
           puzzle = {
             ...selected,
@@ -369,7 +435,7 @@
           input.placeholder = "Search artist or track…";
           playButton.textContent = "▶";
           render();
-          registerAgentTools();
+          if (!agentToolsRegistered) { registerAgentTools(); agentToolsRegistered = true; }
           if (state.over) setTimeout(reveal, 250);
         } catch (error) {
           $("#clipLength").textContent = "preview unavailable";
@@ -383,7 +449,7 @@
       function formatDuration(seconds) { return `${seconds} second${seconds === 1 ? "" : "s"}`; }
       function normalize(value) { return value.toLowerCase().replace(/[^a-z0-9]/g, ""); }
       function label(track) { return `${track.artist} — ${track.title}`; }
-      function persist() { localStorage.setItem(dayKey, JSON.stringify(state)); }
+      function persist() { localStorage.setItem(activeDay.dayKey, JSON.stringify(state)); }
 
       function artistIds(record) {
         return [...new Set([record.artist?.id, ...(record.contributors || []).map((artist) => artist.id)].map(Number).filter(Number.isFinite))];
@@ -560,11 +626,11 @@
       function updateStats(won) {
         let stats = { played: 0, wins: 0, streak: 0, lastDay: null };
         try { stats = { ...stats, ...JSON.parse(localStorage.getItem("clipr-stats") || "{}") }; } catch (_) {}
-        if (stats.lastDay === dayKey) return;
+        if (stats.lastDay === activeDay.dayKey) return;
         stats.played += 1;
         stats.wins += won ? 1 : 0;
         stats.streak = won ? stats.streak + 1 : 0;
-        stats.lastDay = dayKey;
+        stats.lastDay = activeDay.dayKey;
         localStorage.setItem("clipr-stats", JSON.stringify(stats));
       }
 
@@ -667,7 +733,7 @@
       });
       $("#shareButton").addEventListener("click", async () => {
         const marks = state.attempts.map((a) => a.type === "skip" ? "⬛" : (a.type === "artist" || a.type === "album") ? "🟨" : "🟥").join("") + (state.won ? "🟩" : "");
-        const result = `CLIP//R #${puzzleNo} ${state.won ? `${state.attempts.length + 1}/${maxAttempts}` : `X/${maxAttempts}`}\n${marks}`;
+        const result = `CLIP//R #${activeDay.puzzleNo} ${state.won ? `${state.attempts.length + 1}/${maxAttempts}` : `X/${maxAttempts}`}\n${marks}`;
         try { await navigator.clipboard.writeText(result); toast("result copied"); } catch (_) { toast("copy unavailable"); }
       });
 
@@ -683,7 +749,7 @@
             annotations: { readOnlyHint: true, untrustedContentHint: false },
             execute() {
               return {
-                puzzleNumber: puzzleNo,
+                puzzleNumber: activeDay.puzzleNo,
                 clipSeconds: clipSteps[currentStep()],
                 attemptsRemaining: Math.max(0, maxAttempts - state.attempts.length),
                 complete: state.over,
@@ -730,9 +796,62 @@
         });
       }
 
+      function archiveState(dateKey) {
+        try { return JSON.parse(localStorage.getItem(`clipr-${dateKey}`) || "{}"); } catch (_) { return {}; }
+      }
+
+      function buildArchiveEntries() {
+        const todayUtc = utcDayFromKey(todayKey);
+        return queueDays
+          .filter((entry) => {
+            const diffDays = Math.round((todayUtc - utcDayFromKey(entry.date)) / 86400000);
+            return diffDays > 0 && diffDays <= maxArchiveDays;
+          })
+          .sort((a, b) => b.date.localeCompare(a.date));
+      }
+
+      function renderArchiveList() {
+        const list = $("#archiveList");
+        list.innerHTML = "";
+        const entries = buildArchiveEntries();
+        if (!entries.length) {
+          const empty = document.createElement("li");
+          empty.className = "archive-empty";
+          empty.textContent = "No archived transmissions yet.";
+          list.appendChild(empty);
+          return;
+        }
+        entries.forEach((entry) => {
+          const info = dayInfoFor(entry.date);
+          const dateLabel = new Date(`${entry.date}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", month: "short", day: "numeric" });
+          const saved = archiveState(entry.date);
+          const item = document.createElement("li");
+          item.className = "archive-row";
+          if (saved.over) {
+            const row = document.createElement("div");
+            row.className = "row-inner";
+            row.innerHTML = `<span>${escapeHtml(dateLabel)} · #${String(info.puzzleNo).padStart(4, "0")}</span><span class="archive-status">${saved.won ? "solved" : "missed"}</span>`;
+            item.appendChild(row);
+          } else {
+            const button = document.createElement("button");
+            button.type = "button";
+            button.innerHTML = `<span>${escapeHtml(dateLabel)} · #${String(info.puzzleNo).padStart(4, "0")}</span><span class="archive-status">play</span>`;
+            button.addEventListener("click", () => { closeModals(); loadPuzzle(entry.date); });
+            item.appendChild(button);
+          }
+          list.appendChild(item);
+        });
+      }
+
+      $("#archiveButton").addEventListener("click", () => { renderArchiveList(); openModal("archiveModal"); });
+      $("#archiveBackButton").addEventListener("click", () => loadPuzzle(todayKey));
+
       window.addEventListener("clipr:new-game", () => input.focus());
       render();
-      loadCatalog();
+      loadQueue().then((days) => {
+        queueDays = days;
+        loadPuzzle(todayKey);
+      });
     </script>
   </body>
 </html>
