@@ -59,13 +59,16 @@
       .archive-banner[hidden] { display: none; }
       .archive-banner button { border: 2px solid var(--ink); background: var(--paper); padding: 6px 12px; font-weight: 900; cursor: pointer; text-transform: uppercase; }
       .archive-banner button:hover { background: var(--ink); color: var(--acid); }
-      .archive-list { list-style: none; margin: 0 0 20px; padding: 0; border: 2px solid var(--ink); background: var(--white); max-height: 260px; overflow-y: auto; }
+      .archive-card { width: min(680px, calc(100vw - 36px)); max-height: calc(100vh - 36px); overflow-y: auto; }
+      .archive-card h2 { font-size: clamp(2.75rem, 7vw, 5.4rem); letter-spacing: -.08em; }
+      .archive-list { list-style: none; margin: 0 0 20px; padding: 0; border: 2px solid var(--ink); background: var(--white); }
       .archive-row { border-bottom: 1px solid var(--line); }
       .archive-row:last-child { border-bottom: 0; }
-      .archive-row .row-inner, .archive-row button { display: flex; justify-content: space-between; align-items: center; width: 100%; border: 0; background: transparent; padding: 14px 16px; font: 700 .82rem/1.3 monospace; text-transform: uppercase; text-align: left; }
+      .archive-row button { display: flex; justify-content: space-between; align-items: center; gap: 24px; width: 100%; min-height: 58px; border: 0; background: transparent; padding: 14px 16px; font: 700 .82rem/1.3 monospace; text-transform: uppercase; text-align: left; }
+      .archive-row button span:first-child { min-width: 0; overflow-wrap: anywhere; }
       .archive-row button { cursor: pointer; }
       .archive-row button:hover { background: var(--acid); }
-      .archive-status { color: var(--muted); }
+      .archive-status { flex: 0 0 auto; color: var(--muted); }
       .archive-empty { padding: 16px; color: var(--muted); font: 700 .78rem monospace; text-transform: uppercase; }
 
       .timeline { position: relative; display: grid; grid-template-columns: .5fr .5fr 1fr 2fr 4fr 8fr; height: 54px; border: 2px solid var(--ink); background: var(--white); overflow: hidden; }
@@ -170,6 +173,10 @@
         .suggestions { right: 0; }
         .result-answer { grid-template-columns: 84px minmax(0, 1fr); gap: 13px; }
         .result-cover { width: 84px; }
+        .archive-card { padding: 24px 18px; }
+        .archive-card h2 { font-size: clamp(2.5rem, 14vw, 4.4rem); }
+        .archive-row button { gap: 12px; padding: 13px 14px; font-size: .75rem; }
+        .archive-status { font-size: .68rem; }
         footer { grid-template-columns: 1fr; gap: 7px; align-items: flex-start; padding: 12px 16px; }
         .footer-center, .footer-credit { text-align: left; }
       }
@@ -184,7 +191,7 @@
         <div class="brand" aria-label="Clipper">CLIP<span>//</span>R</div>
         <div class="edition">Internet/electronic pop daily</div>
         <nav class="top-actions" aria-label="Game options">
-          <button class="icon-btn" id="archiveButton" aria-label="Past transmissions">◷</button>
+          <button class="icon-btn" id="archiveButton" aria-label="Archive">◷</button>
           <button class="icon-btn" id="helpButton" aria-label="How to play">?</button>
           <button class="icon-btn" id="statsButton" aria-label="View statistics">%</button>
         </nav>
@@ -244,7 +251,7 @@
 
       <footer>
         <span>New track at midnight EST</span>
-        <span class="footer-center">CLIP//R v0.6 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
+        <span class="footer-center">CLIP//R v0.61 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
         <span class="footer-credit">Preview audio and metadata from <a href="https://www.deezer.com" target="_blank" rel="noopener">Deezer</a></span>
       </footer>
     </div>
@@ -276,11 +283,10 @@
     </div>
 
     <div class="modal" id="archiveModal" role="dialog" aria-modal="true" aria-labelledby="archiveTitle">
-      <div class="card">
+      <div class="card archive-card">
         <button class="close" data-close aria-label="Close">×</button>
-        <span class="kicker">Signal archive</span>
-        <h2 id="archiveTitle">past<br />transmissions.</h2>
-        <p>Play up to four previous days you haven’t completed yet.</p>
+        <h2 id="archiveTitle">archive</h2>
+        <p>Revisit any of the previous four days, including transmissions you’ve already completed.</p>
         <ul class="archive-list" id="archiveList"></ul>
         <div class="modal-actions"><button data-close>close</button></div>
       </div>
@@ -901,18 +907,12 @@
           const saved = archiveState(entry.date);
           const item = document.createElement("li");
           item.className = "archive-row";
-          if (saved.over) {
-            const row = document.createElement("div");
-            row.className = "row-inner";
-            row.innerHTML = `<span>${escapeHtml(dateLabel)} · #${String(info.puzzleNo).padStart(4, "0")}</span><span class="archive-status">${saved.won ? "solved" : "missed"}</span>`;
-            item.appendChild(row);
-          } else {
-            const button = document.createElement("button");
-            button.type = "button";
-            button.innerHTML = `<span>${escapeHtml(dateLabel)} · #${String(info.puzzleNo).padStart(4, "0")}</span><span class="archive-status">play</span>`;
-            button.addEventListener("click", () => { closeModals(); loadPuzzle(entry.date); });
-            item.appendChild(button);
-          }
+          const button = document.createElement("button");
+          button.type = "button";
+          const statusText = saved.over ? `${saved.won ? "solved" : "missed"} · view` : "play";
+          button.innerHTML = `<span>${escapeHtml(dateLabel)} · #${String(info.puzzleNo).padStart(4, "0")}</span><span class="archive-status">${statusText}</span>`;
+          button.addEventListener("click", () => { closeModals(); loadPuzzle(entry.date); });
+          item.appendChild(button);
           list.appendChild(item);
         });
       }
