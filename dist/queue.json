@@ -1,13 +1,7 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-11T21:04:46.001Z",
+  "updatedAt": "2026-09-12T15:57:41Z",
   "days": [
-    {
-      "date": "2026-09-11",
-      "deezerId": 3492057651,
-      "artist": "glaive",
-      "title": "Appalachia"
-    },
     {
       "date": "2026-09-12",
       "deezerId": 4004216421,
@@ -16,30 +10,36 @@
     },
     {
       "date": "2026-09-13",
+      "deezerId": 3827236361,
+      "artist": "Feng",
+      "title": "Wasted Youth"
+    },
+    {
+      "date": "2026-09-14",
       "deezerId": 3484515861,
       "artist": "Porter Robinson",
       "title": "Look at the Sky"
     },
     {
-      "date": "2026-09-14",
+      "date": "2026-09-15",
       "deezerId": 1953278607,
       "artist": "Ninajirachi",
       "title": "Start Small"
     },
     {
-      "date": "2026-09-15",
+      "date": "2026-09-16",
       "deezerId": 4136211831,
       "artist": "Frost Children",
       "title": "Satellites"
     },
     {
-      "date": "2026-09-16",
+      "date": "2026-09-17",
       "deezerId": 3678356162,
       "artist": "Jane Remover",
       "title": "How to Teleport"
     },
     {
-      "date": "2026-09-17",
+      "date": "2026-09-18",
       "deezerId": 3861997371,
       "artist": "underscores",
       "title": "Tell Me (U Want It)"

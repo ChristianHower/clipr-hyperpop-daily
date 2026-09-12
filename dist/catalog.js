@@ -182,4 +182,12 @@ window.CLIPR_CATALOG = [
   { deezerId: 1611517282, artist: "Endie", title: "Surrender" },
   { deezerId: 3028746761, artist: "Aries", title: "CABIN FEVER" },
   { deezerId: 4004216331, artist: "tsubi club", title: "You're serious, aren't you ?" },
+  { deezerId: 3827236361, artist: "Feng", title: "Wasted Youth", soundcloud: "https://soundcloud.com/fengeveryday/wasted-youth" },
+  { deezerId: 3827236311, artist: "Feng", title: "XOXO" },
+  { deezerId: 3827236241, artist: "Feng", title: "Cali Crazy" },
+  { deezerId: 3827236301, artist: "Feng", title: "Teenage Famous" },
+  { deezerId: 3827236351, artist: "Feng", title: "Dopest Girl" },
+  { deezerId: 3827236261, artist: "Feng", title: "Firework" },
+  { deezerId: 3827236341, artist: "Feng", title: "Superstar" },
+  { deezerId: 3827236271, artist: "Feng", title: "Best Friend" },
 ];
