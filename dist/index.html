@@ -8,7 +8,7 @@
       name="description"
       content="CLIP//R is a daily hyperpop music guessing game featuring artists across the internet-pop underground."
     />
-    <title>CLIP//R — daily hyperpop</title>
+    <title>CLIP//R</title>
     <link
       rel="icon"
       type="image/svg+xml"
@@ -251,7 +251,7 @@
 
       <footer>
         <span>New track at midnight EST</span>
-        <span class="footer-center">CLIP//R v0.61 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
+        <span class="footer-center">CLIP//R v0.62 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
         <span class="footer-credit">Preview audio and metadata from <a href="https://www.deezer.com" target="_blank" rel="noopener">Deezer</a></span>
       </footer>
     </div>
@@ -599,8 +599,13 @@
 
       function filteredTracks() {
         const query = normalize(input.value);
-        if (!query) return tracks.slice(0, 7);
-        return tracks.filter((track) => normalize(label(track)).includes(query)).slice(0, 7);
+        const matches = query
+          ? tracks.filter((track) => normalize(label(track)).includes(query))
+          : [...tracks];
+        return matches.sort((a, b) =>
+          a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true })
+          || a.artist.localeCompare(b.artist, undefined, { sensitivity: "base", numeric: true })
+        ).slice(0, 7);
       }
 
       function showSuggestions() {
