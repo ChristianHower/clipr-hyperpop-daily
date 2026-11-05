@@ -122,7 +122,7 @@
       .attempt-list li.wrong .mark { color: var(--hot); }
       .attempt-list li.near .mark { color: var(--yellow); }
       .attempt-list li.skiprow .mark { color: var(--acid); }
-      .transmission-answer { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 14px; align-items: center; margin-top: auto; padding: 18px; border-top: 2px solid var(--acid); background: #1d1d1d; color: var(--paper); text-decoration: none; transition: background .15s ease, color .15s ease; }
+      .transmission-answer { display: grid; grid-template-columns: 74px minmax(0, 1fr); gap: 14px; align-items: center; width: 100%; margin-top: auto; padding: 18px; border: 0; border-top: 2px solid var(--acid); background: #1d1d1d; color: var(--paper); text-align: left; text-decoration: none; cursor: pointer; transition: background .15s ease, color .15s ease; }
       .transmission-answer[hidden] { display: none; }
       .transmission-answer:hover { background: var(--acid); color: var(--ink); }
       .transmission-cover { display: block; width: 74px; aspect-ratio: 1; object-fit: cover; border: 1px solid var(--paper); background: #3b3b3b; }
@@ -196,7 +196,7 @@
         <div class="brand" aria-label="Clipper">CLIP<span>//</span>R</div>
         <div class="edition">Legacy daily · internet/electronic pop</div>
         <nav class="top-actions" aria-label="Game options">
-          <a class="mode-link" href="/" aria-label="Back to the main Endless game">← Endless</a>
+          <a class="mode-link" href="/" aria-label="Back to the main Endless game">Endless</a>
           <button class="icon-btn" id="archiveButton" aria-label="Archive">◷</button>
           <button class="icon-btn" id="helpButton" aria-label="How to play">?</button>
           <button class="icon-btn" id="statsButton" aria-label="View statistics">%</button>
@@ -248,10 +248,10 @@
         <aside class="sidebar" aria-label="Attempts">
           <div class="side-head"><h2>Transmission log</h2><span class="counter" id="sideCounter">0 / 6</span></div>
           <ol class="attempt-list" id="attemptList"></ol>
-          <a class="transmission-answer" id="transmissionAnswer" href="https://soundcloud.com" target="_blank" rel="noopener" hidden>
+          <button class="transmission-answer" id="transmissionAnswer" type="button" hidden>
             <img class="transmission-cover" id="transmissionCover" alt="" />
             <span class="transmission-copy"><span class="transmission-label">Transmission identified ↗</span><strong class="transmission-title" id="transmissionTitle"></strong><span class="transmission-artist" id="transmissionArtist"></span></span>
-          </a>
+          </button>
         </aside>
       </main>
 
@@ -466,7 +466,6 @@
         suggestions.classList.remove("open");
         suggestionIndex = -1;
         $("#transmissionAnswer").hidden = true;
-        $("#transmissionAnswer").removeAttribute("href");
         $("#transmissionCover").removeAttribute("src");
         $("#transmissionCover").alt = "";
         $("#transmissionTitle").textContent = "";
@@ -509,7 +508,7 @@
           render();
           if (!agentToolsRegistered) { registerAgentTools(); agentToolsRegistered = true; }
           if (state.over) setTimeout(() => {
-            if (loadRun === puzzleLoadRun && activeDay.dateKey === dateKey && state.over) reveal();
+            if (loadRun === puzzleLoadRun && activeDay.dateKey === dateKey && state.over) populateAnswer();
           }, 250);
         } catch (error) {
           if (loadRun !== puzzleLoadRun || activeDay.dateKey !== dateKey) return;
@@ -730,6 +729,12 @@
 
       function reveal() {
         if (!puzzle || !state.over) return;
+        populateAnswer();
+        openModal("resultModal");
+      }
+
+      function populateAnswer() {
+        if (!puzzle || !state.over) return;
         $("#resultKicker").textContent = state.won ? "Signal found" : "Signal lost";
         $("#resultTitle").textContent = state.won ? "nailed it." : "too loud.";
         $("#answerTrack").textContent = puzzle.title;
@@ -742,14 +747,12 @@
         $("#transmissionArtist").textContent = puzzle.artist;
         $("#transmissionCover").src = puzzle.cover || "";
         $("#transmissionCover").alt = puzzle.cover ? `${puzzle.title} cover art` : "";
-        $("#transmissionAnswer").href = puzzle.soundcloud;
-        $("#transmissionAnswer").setAttribute("aria-label", `Open ${puzzle.artist} — ${puzzle.title} on SoundCloud`);
+        $("#transmissionAnswer").setAttribute("aria-label", `Show ${puzzle.artist} — ${puzzle.title} result`);
         $("#transmissionAnswer").hidden = false;
         $("#deezerLink").href = puzzle.link;
         $("#resultCopy").textContent = state.won
           ? `You got it with ${formatDuration(clipSteps[currentStep()])} of signal.`
           : (activeDay.dateKey === todayKey ? "Come back tomorrow for another transmission." : "Return to the archive or try today’s transmission.");
-        openModal("resultModal");
       }
 
       function stopPreview() {
@@ -936,6 +939,7 @@
 
       $("#archiveButton").addEventListener("click", () => { renderArchiveList(); openModal("archiveModal"); });
       $("#archiveBackButton").addEventListener("click", () => loadPuzzle(todayKey));
+      $("#transmissionAnswer").addEventListener("click", () => { if (state.over) reveal(); });
 
       window.addEventListener("clipr:new-game", () => input.focus());
       render();

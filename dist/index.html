@@ -210,7 +210,7 @@
         <div class="brand" aria-label="Clipper">CLIP<span>//</span>R</div>
         <div class="edition">Endless · playlist mode</div>
         <nav class="top-actions" aria-label="Game options">
-          <a class="mode-link" href="/legacy" aria-label="Play the legacy daily game">Legacy daily</a>
+          <a class="mode-link" href="/legacy" aria-label="Play the legacy daily game">Legacy</a>
           <button class="icon-btn" id="helpButton" aria-label="How to play">?</button>
           <button class="icon-btn" id="statsButton" aria-label="View statistics">%</button>
         </nav>
@@ -222,7 +222,7 @@
           <div class="loader" id="loaderView">
             <p class="eyebrow">CLIP//R // Endless</p>
             <h1 id="game-title">bring your<br />own playlist.</h1>
-            <p class="prompt">Paste a public Spotify playlist. Its tracks become the song pool and the only accepted guesses. Guess each track from the shortest possible preview, then keep going — it never ends.</p>
+            <p class="prompt">Paste a public Spotify playlist.</p>
             <form class="loader-form" id="loaderForm">
               <input id="playlistInput" type="text" inputmode="url" placeholder="https://open.spotify.com/playlist/…" autocomplete="off" aria-label="Spotify playlist link" />
               <button type="submit" id="loadButton">load</button>
@@ -472,26 +472,64 @@
       }
 
       // Resolve one Spotify track to a playable Deezer track.
+      // Scores candidates on title, artist, and duration closeness, then rejects a best pick
+      // that clearly isn't the same recording (wrong artist AND duration far off), so a
+      // coincidental same-title song never gets served in place of the real track.
       async function resolveTrack(sp) {
-        const primaryArtist = (sp.artists && sp.artists[0]) || "";
+        const artists = (sp.artists || []).filter(Boolean);
+        const primaryArtist = artists[0] || "";
         const query = `${primaryArtist} ${sp.title}`.trim();
         let data;
-        try { data = await deezerJsonp(`/search/track?q=${encodeURIComponent(query)}&limit=5`); }
+        try { data = await deezerJsonp(`/search/track?q=${encodeURIComponent(query)}&limit=8`); }
         catch (_) { return null; }
         const results = (data && data.data) || [];
-        const wantTitle = normalize(sp.title);
-        const wantArtist = normalize(primaryArtist);
-        // Prefer a readable, playable result whose title matches; then same artist; then first playable.
         const playable = results.filter((r) => r.readable && r.preview);
         if (!playable.length) return null;
-        const exact = playable.find((r) => normalize(r.title) === wantTitle && normalize(r.artist?.name) === wantArtist)
-          || playable.find((r) => normalize(r.title) === wantTitle)
-          || playable.find((r) => normalize(r.artist?.name) === wantArtist)
-          || playable[0];
+
+        const wantTitle = normalize(sp.title);
+        const spSeconds = sp.durationMs ? Math.round(sp.durationMs / 1000) : null;
+        const artistOf = (r) => normalize(r.artist?.name);
+        const artistMatch = (r) => artists.some((name) => {
+          const n = normalize(name);
+          return n && (n === artistOf(r) || artistOf(r).includes(n) || n.includes(artistOf(r)));
+        });
+        const durationDiff = (r) => (spSeconds == null ? null : Math.abs(spSeconds - r.duration));
+
+        const score = (r) => {
+          let s = 0;
+          const title = normalize(r.title);
+          if (title === wantTitle) s += 50;
+          else if (title.includes(wantTitle) || wantTitle.includes(title)) s += 22;
+          if (artistMatch(r)) s += 45;
+          const diff = durationDiff(r);
+          if (diff != null) {
+            if (diff <= 2) s += 30;
+            else if (diff <= 5) s += 18;
+            else if (diff <= 10) s += 6;
+            else if (diff > 20) s -= 45;
+            else s -= 8;
+          }
+          return s;
+        };
+
+        let best = playable[0];
+        let bestScore = score(best);
+        for (const r of playable) {
+          const s = score(r);
+          if (s > bestScore) { bestScore = s; best = r; }
+        }
+
+        // Reject a pick that is almost certainly a different song: no artist overlap and either
+        // the duration is far off, or (with no duration to check) the title isn't even exact.
+        const diff = durationDiff(best);
+        const wrongSong = (!artistMatch(best) && diff != null && diff > 15)
+          || (!artistMatch(best) && diff == null && normalize(best.title) !== wantTitle);
+        if (wrongSong) return null;
+
         return {
-          id: Number(exact.id),
-          artist: exact.artist?.name || primaryArtist,
-          title: exact.title || sp.title
+          id: Number(best.id),
+          artist: best.artist?.name || primaryArtist,
+          title: best.title || sp.title
         };
       }
 
