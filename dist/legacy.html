@@ -198,8 +198,6 @@
         <nav class="top-actions" aria-label="Game options">
           <a class="mode-link" href="/" aria-label="Back to the main Endless game">Endless</a>
           <button class="icon-btn" id="archiveButton" aria-label="Archive">◷</button>
-          <button class="icon-btn" id="helpButton" aria-label="How to play">?</button>
-          <button class="icon-btn" id="statsButton" aria-label="View statistics">%</button>
         </nav>
       </header>
 
@@ -257,7 +255,7 @@
 
       <footer>
         <span>New track at midnight EST</span>
-        <span class="footer-center">CLIP//R daily v0.81 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
+        <span class="footer-center">CLIP//R daily v0.92 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
         <span class="footer-credit">Preview audio and metadata from <a href="https://www.deezer.com" target="_blank" rel="noopener">Deezer</a></span>
       </footer>
     </div>
@@ -821,15 +819,6 @@
       $("#skipButton").addEventListener("click", skip);
       playButton.addEventListener("click", playSignal);
       resultPlayButton.addEventListener("click", playSignal);
-      $("#helpButton").addEventListener("click", () => openModal("infoModal"));
-      $("#statsButton").addEventListener("click", () => {
-        let stats = { played: 0, wins: 0, streak: 0 };
-        try { stats = { ...stats, ...JSON.parse(localStorage.getItem("clipr-stats") || "{}") }; } catch (_) {}
-        const rate = stats.played ? Math.round((stats.wins / stats.played) * 100) : 0;
-        $("#statsLine").textContent = `${stats.played} daily games · ${rate}% win rate`;
-        $("#streakLine").textContent = `Current streak: ${stats.streak}`;
-        openModal("statsModal");
-      });
       $("#shareButton").addEventListener("click", async () => {
         const marks = state.attempts.map((a) => a.type === "skip" ? "⬛" : (a.type === "artist" || a.type === "album") ? "🟨" : "🟥").join("") + (state.won ? "🟩" : "");
         const result = `CLIP//R #${activeDay.puzzleNo} ${state.won ? `${state.attempts.length + 1}/${maxAttempts}` : `X/${maxAttempts}`}\n${marks}`;

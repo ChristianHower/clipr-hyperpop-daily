@@ -227,8 +227,6 @@
         <div class="edition">Endless · playlist mode</div>
         <nav class="top-actions" aria-label="Game options">
           <a class="mode-link" href="/legacy" aria-label="Play the legacy daily game">Legacy</a>
-          <button class="icon-btn" id="helpButton" aria-label="How to play">?</button>
-          <button class="icon-btn" id="statsButton" aria-label="View statistics">%</button>
         </nav>
       </header>
 
@@ -321,7 +319,7 @@
 
       <footer>
         <span>Unlimited · bring any playlist</span>
-        <span class="footer-center">CLIP//R Endless v0.91 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
+        <span class="footer-center">CLIP//R Endless v0.92 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
         <span class="footer-credit">Preview audio from <a href="https://www.spotify.com" target="_blank" rel="noopener">Spotify</a> · album art via Deezer</span>
       </footer>
     </div>
@@ -1203,19 +1201,6 @@
       $("#continueButton").addEventListener("click", () => { closeModals(); nextRound(); });
       $("#restartButton").addEventListener("click", () => { closeModals(); restartSession(); });
       $("#restartInline").addEventListener("click", () => restartSession());
-      $("#helpButton").addEventListener("click", () => openModal("infoModal"));
-      $("#statsButton").addEventListener("click", () => {
-        const rate = session.played ? Math.round((session.solved / session.played) * 100) : 0;
-        $("#statsLine").textContent = `${session.solved} solved · ${rate}% hit rate`;
-        $("#streakLine").textContent = `Current streak: ${session.streak} · Best: ${session.best}`;
-        if (session.solved) {
-          const parts = session.dist.map((count, i) => `${clipSteps[i]}s: ${count}`);
-          $("#statsDist").textContent = `Solves by clip length — ${parts.join(" · ")}.`;
-        } else {
-          $("#statsDist").textContent = "No rounds solved yet this session.";
-        }
-        openModal("statsModal");
-      });
 
       $("#changePlaylistButton").addEventListener("click", () => {
         resolveToken += 1; // stop any background resolution from the current playlist
