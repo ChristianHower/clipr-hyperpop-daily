@@ -316,7 +316,7 @@
 
       <footer>
         <span>Unlimited · bring any playlist</span>
-        <span class="footer-center">CLIP//R Endless v0.85 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
+        <span class="footer-center">CLIP//R Endless v0.86 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
         <span class="footer-credit">Preview audio and metadata from <a href="https://www.deezer.com" target="_blank" rel="noopener">Deezer</a> · playlists via Spotify</span>
       </footer>
     </div>
@@ -625,6 +625,20 @@
         const hasLatin = (s) => /[a-z]/i.test(s || "");
         const hasCJK = (s) => /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/.test(s || "");
 
+        // A "distinctive" title is unique enough that an exact title match is itself strong
+        // evidence of the right recording. A generic one — short, or purely numeric like "2025",
+        // or a single common word — collides across many unrelated songs, so a same-title hit by
+        // the wrong artist means nothing. Only distinctive titles are allowed to match with no
+        // artist corroboration; a generic title with no artist overlap is rejected (skipped)
+        // rather than served, which is what caused "2025" by Westwood to resolve to a different
+        // "2025". Everything else keeps the existing lenient matching.
+        const titleIsDistinctive = (() => {
+          const t = wantTitle;                       // already normalized: lowercased, alnum only
+          if (t.length < 6) return false;            // short titles collide ("2025", "alive")
+          if (/^\d+$/.test(t)) return false;         // purely numeric ("2025", "1999")
+          return true;
+        })();
+
         const artistOf = (r) => normalize(r.artist?.name);
         const artistMatch = (r) => artists.some((name) => {
           const n = normalize(name);
@@ -682,12 +696,22 @@
         }
         if (!ev) return null;
 
-        // Reject a pick that is almost certainly a different song: no artist overlap and either
-        // the duration is far off, or (with no duration to check) the title isn't even exact.
+        // Reject a pick that is almost certainly a different song. With no artist overlap to
+        // confirm identity, we only trust a match when the title is distinctive AND the duration
+        // is tight — because duration alone cannot tell the real track from a same-title song of
+        // similar length (the "2025" collision). Specifically, reject when there's no artist
+        // match and any of:
+        //   - the title is generic (short/numeric) — a same-title hit means nothing, OR
+        //   - the duration is off by more than ~8s (tightened from 15s), OR
+        //   - there's no duration to check and the title isn't an exact match.
         const best = ev.best;
         const diff = durationDiff(best);
-        const wrongSong = (!artistMatch(best) && diff != null && diff > 15)
-          || (!artistMatch(best) && diff == null && normalize(best.title) !== wantTitle);
+        const noArtist = !artistMatch(best);
+        const wrongSong = noArtist && (
+          !titleIsDistinctive
+          || (diff != null && diff > 8)
+          || (diff == null && normalize(best.title) !== wantTitle)
+        );
         if (wrongSong) return null;
 
         return {
