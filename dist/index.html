@@ -296,7 +296,7 @@
 
       <footer>
         <span>Unlimited · bring any playlist</span>
-        <span class="footer-center">CLIP//R Endless v0.80 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
+        <span class="footer-center">CLIP//R Endless v0.81 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
         <span class="footer-credit">Preview audio and metadata from <a href="https://www.deezer.com" target="_blank" rel="noopener">Deezer</a> · playlists via Spotify</span>
       </footer>
     </div>
@@ -475,19 +475,19 @@
       // Scores candidates on title, artist, and duration closeness, then rejects a best pick
       // that clearly isn't the same recording (wrong artist AND duration far off), so a
       // coincidental same-title song never gets served in place of the real track.
+      //
+      // Deezer's search struggles when a non-Latin (e.g. Japanese) artist name is concatenated
+      // with a Latin title, often returning nothing. So when the primary "artist + title" query
+      // is weak, we widen with extra query shapes (title-only, title + artist) and let the
+      // scorer and the wrong-song guard filter the extra noise.
       async function resolveTrack(sp) {
         const artists = (sp.artists || []).filter(Boolean);
         const primaryArtist = artists[0] || "";
-        const query = `${primaryArtist} ${sp.title}`.trim();
-        let data;
-        try { data = await deezerJsonp(`/search/track?q=${encodeURIComponent(query)}&limit=8`); }
-        catch (_) { return null; }
-        const results = (data && data.data) || [];
-        const playable = results.filter((r) => r.readable && r.preview);
-        if (!playable.length) return null;
-
         const wantTitle = normalize(sp.title);
         const spSeconds = sp.durationMs ? Math.round(sp.durationMs / 1000) : null;
+        const hasLatin = (s) => /[a-z]/i.test(s || "");
+        const hasCJK = (s) => /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/.test(s || "");
+
         const artistOf = (r) => normalize(r.artist?.name);
         const artistMatch = (r) => artists.some((name) => {
           const n = normalize(name);
@@ -512,15 +512,42 @@
           return s;
         };
 
-        let best = playable[0];
-        let bestScore = score(best);
-        for (const r of playable) {
-          const s = score(r);
-          if (s > bestScore) { bestScore = s; best = r; }
+        async function search(query) {
+          try {
+            const data = await deezerJsonp(`/search/track?q=${encodeURIComponent(query)}&limit=10`);
+            return (data && data.data) || [];
+          } catch (_) { return []; }
         }
+
+        const seen = new Set();
+        const pool = [];
+        const addRows = (rows) => { for (const r of rows) if (r && r.id && !seen.has(r.id)) { seen.add(r.id); pool.push(r); } };
+        const evaluate = () => {
+          const playable = pool.filter((r) => r.readable && r.preview);
+          if (!playable.length) return null;
+          let best = playable[0], bestScore = score(best);
+          for (const r of playable) { const s = score(r); if (s > bestScore) { bestScore = s; best = r; } }
+          return { best, bestScore };
+        };
+
+        // Query 1: artist + title.
+        addRows(await search(`${primaryArtist} ${sp.title}`.trim()));
+        let ev = evaluate();
+        // Fallbacks only when the primary query has no confident hit (keeps well-matched
+        // playlists from paying for extra requests).
+        if (!ev || ev.bestScore < 95) {
+          addRows(await search(sp.title));
+          ev = evaluate();
+        }
+        if ((!ev || ev.bestScore < 95) && hasCJK(primaryArtist) && hasLatin(sp.title)) {
+          addRows(await search(`${sp.title} ${primaryArtist}`.trim()));
+          ev = evaluate();
+        }
+        if (!ev) return null;
 
         // Reject a pick that is almost certainly a different song: no artist overlap and either
         // the duration is far off, or (with no duration to check) the title isn't even exact.
+        const best = ev.best;
         const diff = durationDiff(best);
         const wrongSong = (!artistMatch(best) && diff != null && diff > 15)
           || (!artistMatch(best) && diff == null && normalize(best.title) !== wantTitle);
@@ -532,6 +559,7 @@
           title: best.title || sp.title
         };
       }
+
 
       async function startPlaylist(id) {
         $("#loadButton").disabled = true;
