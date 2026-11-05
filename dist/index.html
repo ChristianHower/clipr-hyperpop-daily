@@ -372,6 +372,7 @@
       const RECENTS_KEY = "clipr-endless-recents";
       const MAX_RECENTS = 6;
       const SESSION_KEY = "clipr-endless-session";
+      const BEST_KEY = "clipr-endless-best"; // { [playlistId]: bestStreak } — persists per playlist
 
       // ---- health system (v0.85) ----
       // Start with 8 HP, capped at 8 (the +1 never overflows). Health changes by how much
@@ -591,6 +592,18 @@
 
       function clearSavedSession() { try { localStorage.removeItem(SESSION_KEY); } catch (_) {} }
 
+      // Per-playlist best streak — persists across sessions/restarts on the same playlist.
+      function loadBestMap() { try { return JSON.parse(localStorage.getItem(BEST_KEY) || "{}") || {}; } catch (_) { return {}; } }
+      function getBest(playlistId) { if (!playlistId) return 0; const v = loadBestMap()[playlistId]; return Number.isFinite(v) ? v : 0; }
+      function recordBest(playlistId, value) {
+        if (!playlistId || !Number.isFinite(value)) return;
+        const map = loadBestMap();
+        if (value > (map[playlistId] || 0)) {
+          map[playlistId] = value;
+          try { localStorage.setItem(BEST_KEY, JSON.stringify(map)); } catch (_) {}
+        }
+      }
+
       // ---- loading a playlist ----
       function setLoaderStatus(text) { $("#loaderStatus").textContent = text || ""; }
       function setProgress(done, total) {
@@ -722,7 +735,9 @@
       }
 
       function resetSessionStats() {
-        session.solved = 0; session.played = 0; session.streak = 0; session.best = 0;
+        session.solved = 0; session.played = 0; session.streak = 0;
+        // Best streak carries over per playlist; seed it from the stored record.
+        session.best = getBest(currentPlaylistId);
         session.health = START_HEALTH; session.dead = false;
         session.dist = Array(maxAttempts).fill(0);
       }
@@ -1015,6 +1030,7 @@
           session.solved += 1;
           session.streak += 1;
           session.best = Math.max(session.best, session.streak);
+          recordBest(currentPlaylistId, session.best); // persist per-playlist best across sessions
           const step = Math.min(state.attempts.length, maxAttempts - 1);
           session.dist[step] += 1;
           // Health change is keyed to the clip the player solved on.
@@ -1223,6 +1239,9 @@
             Object.assign(session, snap.session);
             if (!Array.isArray(session.dist)) session.dist = Array(maxAttempts).fill(0);
           }
+          // Reconcile with the persisted per-playlist best (may be higher from another session).
+          session.best = Math.max(session.best || 0, getBest(currentPlaylistId));
+          recordBest(currentPlaylistId, session.best);
 
           $("#loaderView").hidden = true;
           $("#gameView").hidden = false;
