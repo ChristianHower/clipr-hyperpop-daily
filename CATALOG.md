@@ -1,6 +1,6 @@
 # CLIP//R search catalog
 
-These are all artist and song combinations currently accepted by the game and available in the private seven-day queue editor. `dist/catalog.js` is the source of truth; each entry uses the listed Deezer track ID for metadata and preview playback.
+These are all artist and song combinations currently accepted by the game and available in the private seven-day queue editor. `dist/js/catalog.js` is the source of truth; each entry uses the listed Deezer track ID for metadata and preview playback.
 
 The catalog includes verified tracks imported from [is this hyperpop? on Spotify](https://open.spotify.com/playlist/21BRDwCxzodioo2OnIxIWG). Tracks without a working Deezer preview are documented in `PLAYLIST_IMPORT.md` and are not offered in the game.
 
@@ -200,6 +200,6 @@ The catalog includes verified tracks imported from [is this hyperpop? on Spotify
 
 ## Adding another option
 
-Add one object to `dist/catalog.js` with `deezerId`, `artist`, and `title`. You may also add a verified direct `soundcloud` URL. Without one, the result links to an exact artist-and-title search on SoundCloud.
+Add one object to `dist/js/catalog.js` with `deezerId`, `artist`, and `title`. You may also add a verified direct `soundcloud` URL. Without one, the result links to an exact artist-and-title search on SoundCloud.
 
 Before adding a track, confirm that Deezer returns a readable 30-second preview for its ID.

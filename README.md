@@ -31,6 +31,21 @@ Reading a playlist runs through a small serverless function at `/api/playlist` (
 
 The function uses **no Spotify login or API key**.
 
+### API hardening
+
+The `/api/playlist` function fans one request out to several outbound Spotify fetches, so it is treated as an abuse/amplification surface and hardened accordingly:
+
+- **GET only.** Any other method returns `405`; a CORS preflight (`OPTIONS`) is answered `204`.
+- **Not an open proxy.** Cross-site browser requests are refused (`403`) unless their `Origin` is on an allow-list. Same-origin requests from the site send no `Origin` and always work. Set `ALLOWED_ORIGINS` (comma-separated, e.g. `https://clipr.example,https://www.clipr.example`) as a Vercel environment variable to permit any extra domains; leaving it unset means same-origin-only. Setting it to `*` restores a fully open proxy (not recommended).
+- **Per-IP rate limiting.** ~30 requests/minute per IP per warm instance, returning `429` with `Retry-After` when exceeded. This is in-memory per instance, so it is a first line of defence, not a global quota — see the operational notes below.
+- **Amplification cap.** A single request enumerates at most 1000 tracks (≈2 outbound pathfinder pages), matching the documented 1000-track playlist limit.
+- **Outbound timeouts.** Every call to Spotify has an 8s timeout so one slow upstream connection can't pin the function.
+- **Security headers** (`X-Content-Type-Options: nosniff`, `Referrer-Policy`) on API responses, and a site-wide Content-Security-Policy plus `X-Frame-Options`, `Strict-Transport-Security`, and `Permissions-Policy` on all static responses via `vercel.json`.
+
+> **Operational notes.** Per-instance rate limiting does not replace platform protection. In the Vercel dashboard, also: (1) enable the project's **Attack Challenge / DDoS protection** (WAF), (2) set a **spend limit** so a traffic spike can't run up the bill, and (3) set `ALLOWED_ORIGINS` to your production domain(s). For a hard, cross-region rate limit, back the limiter with a shared store (e.g. Upstash/Vercel KV).
+>
+> Note that a static site's HTML and JavaScript are always visible to any browser that loads it — that is inherent to the web and is not a vulnerability. The client here renders all playlist/track text through `textContent`/escaping, so it has no injection sink; secrets must never live in front-end code (none do).
+
 Each track in the response carries Spotify's own preview URL, so the browser plays that audio directly — no third-party matching step. For playlists over 100 tracks, pathfinder enumerates the full list (which doesn't include previews), and the preview for each of those extra tracks is fetched lazily from its track embed (`/api/playlist?preview=<id>`) the first time it is played.
 
 ### Known limitations

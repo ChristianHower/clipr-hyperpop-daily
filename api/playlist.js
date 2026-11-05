@@ -20,6 +20,93 @@ const EMBED_PAGE_CAP = 100;
 const PATHFINDER_PAGE = 500;
 const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36";
 
+// --- Security / abuse-resistance knobs -------------------------------------------------------
+// This endpoint fans one inbound request out to several outbound Spotify fetches, so it must be
+// treated as an amplification surface: cap how hard a single caller can push it and how far a
+// single request can amplify.
+//
+// Hard ceiling on tracks enumerated per request. README states playlists over 1000 tracks are
+// rejected, so there is no legitimate reason to page beyond that; this caps outbound pathfinder
+// calls at ~2 pages instead of the previous 40. A caller cannot turn one request into dozens of
+// outbound calls.
+const MAX_TRACKS = 1000;
+// Per-outbound-fetch timeout. Without this a single slow/hung Spotify connection pins the
+// function for its whole max duration, which is itself a cheap denial-of-service.
+const FETCH_TIMEOUT_MS = 8000;
+
+// Allowed origins for cross-site (browser) use of this API. Same-origin requests from the
+// deployed site send no Origin (or the site's own), so they are always allowed; only other
+// sites get rejected, which stops the function being used as a free open Spotify proxy. Set the
+// ALLOWED_ORIGINS env var (comma-separated) in Vercel to match your production domain(s).
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+// In-memory sliding-window rate limiter. This is per warm serverless instance (not a global
+// cross-region limit), so it is a first line of defence, not a hard quota — pair it with
+// Vercel's platform-level DDoS protection / WAF and a spend cap for real guarantees. It still
+// blunts the common case: a single IP hammering one instance.
+const RATE_LIMIT_MAX = 30;            // requests
+const RATE_LIMIT_WINDOW_MS = 60_000;  // per minute, per IP
+const rateBuckets = new Map();        // ip -> number[] of request timestamps (ms)
+
+function clientIp(req) {
+  const xff = req.headers["x-forwarded-for"];
+  if (typeof xff === "string" && xff.length) return xff.split(",")[0].trim();
+  if (Array.isArray(xff) && xff.length) return String(xff[0]).trim();
+  return req.headers["x-real-ip"] || (req.socket && req.socket.remoteAddress) || "unknown";
+}
+
+// Returns true if this IP is now over the limit (and should be rejected).
+function isRateLimited(ip) {
+  const now = Date.now();
+  const cutoff = now - RATE_LIMIT_WINDOW_MS;
+  const hits = (rateBuckets.get(ip) || []).filter((t) => t > cutoff);
+  hits.push(now);
+  rateBuckets.set(ip, hits);
+  // Opportunistic cleanup so the map can't grow without bound on a long-lived instance.
+  if (rateBuckets.size > 5000) {
+    for (const [key, times] of rateBuckets) {
+      if (!times.some((t) => t > cutoff)) rateBuckets.delete(key);
+    }
+  }
+  return hits.length > RATE_LIMIT_MAX;
+}
+
+// fetch() with a hard timeout so one slow upstream connection can't pin the function.
+async function fetchWithTimeout(url, options = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// Resolve the CORS origin to echo back, or null to deny cross-site reads. No env configured =>
+// same-origin-only (browser omits/sets its own Origin for same-origin, so the site keeps working
+// while other sites are refused). "*" in ALLOWED_ORIGINS opts back into a fully open proxy.
+function resolveCorsOrigin(origin) {
+  if (!origin) return null;                       // same-origin / non-browser: no CORS header needed
+  if (ALLOWED_ORIGINS.includes("*")) return "*";
+  if (ALLOWED_ORIGINS.includes(origin)) return origin;
+  return null;
+}
+
+function applyBaseHeaders(res, corsOrigin) {
+  if (corsOrigin) {
+    res.setHeader("Access-Control-Allow-Origin", corsOrigin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader("Access-Control-Max-Age", "86400");
+  }
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("Referrer-Policy", "no-referrer");
+}
+
 // Accept the forms Spotify shares; return the 22-char base-62 id or null.
 function parsePlaylistId(raw) {
   if (!raw || typeof raw !== "string") return null;
@@ -42,7 +129,7 @@ function joinArtists(list) {
 }
 
 async function fetchEmbed(id) {
-  const res = await fetch(`https://open.spotify.com/embed/playlist/${id}`, {
+  const res = await fetchWithTimeout(`https://open.spotify.com/embed/playlist/${id}`, {
     headers: { "User-Agent": BROWSER_UA, "Accept-Language": "en" }
   });
   if (!res.ok) throw new Error(`embed page HTTP ${res.status}`);
@@ -93,7 +180,7 @@ async function fetchAllViaPathfinder(id, token) {
       operationName: "fetchPlaylist",
       extensions: { persistedQuery: { version: 1, sha256Hash: FETCH_PLAYLIST_HASH } }
     };
-    const res = await fetch("https://api-partner.spotify.com/pathfinder/v2/query", {
+    const res = await fetchWithTimeout("https://api-partner.spotify.com/pathfinder/v2/query", {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "User-Agent": BROWSER_UA },
       body: JSON.stringify(body)
@@ -130,7 +217,7 @@ async function fetchAllViaPathfinder(id, token) {
     }
     offset += items.length;
     if (offset >= total) break;
-    if (out.length > 20000) break; // safety stop
+    if (out.length >= MAX_TRACKS) break; // amplification cap: stop paging a single request early
   }
   return out;
 }
@@ -138,7 +225,7 @@ async function fetchAllViaPathfinder(id, token) {
 // Fetch a single track's preview URL from its embed page (keyless). Used to lazily resolve
 // previews for tracks beyond the first 100 in a large playlist, which pathfinder doesn't carry.
 async function fetchTrackPreview(trackId) {
-  const res = await fetch(`https://open.spotify.com/embed/track/${trackId}`, {
+  const res = await fetchWithTimeout(`https://open.spotify.com/embed/track/${trackId}`, {
     headers: { "User-Agent": BROWSER_UA, "Accept-Language": "en" }
   });
   if (!res.ok) throw new Error(`track embed HTTP ${res.status}`);
@@ -151,7 +238,38 @@ async function fetchTrackPreview(trackId) {
 }
 
 module.exports = async function handler(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
+  const corsOrigin = resolveCorsOrigin(req.headers.origin);
+  applyBaseHeaders(res, corsOrigin);
+
+  // CORS preflight: answer and stop. (Only reached for cross-site requests.)
+  if (req.method === "OPTIONS") {
+    res.status(204).end();
+    return;
+  }
+
+  // Read-only endpoint: only GET is meaningful. Reject everything else up front.
+  if (req.method !== "GET") {
+    res.setHeader("Allow", "GET, OPTIONS");
+    res.status(405).json({ error: "Method not allowed." });
+    return;
+  }
+
+  // A cross-site request whose Origin is not on the allow-list is refused — the function is not
+  // an open proxy. Same-origin requests from the site send no Origin and are unaffected.
+  if (req.headers.origin && !corsOrigin) {
+    res.status(403).json({ error: "Origin not allowed." });
+    return;
+  }
+
+  // Per-IP rate limiting. First line of defence against a single caller hammering the endpoint;
+  // see the note on rateBuckets about pairing this with platform DDoS protection.
+  const ip = clientIp(req);
+  if (isRateLimited(ip)) {
+    res.setHeader("Retry-After", String(Math.ceil(RATE_LIMIT_WINDOW_MS / 1000)));
+    res.status(429).json({ error: "Too many requests. Slow down and try again shortly." });
+    return;
+  }
+
   res.setHeader("Cache-Control", "public, max-age=300, s-maxage=600");
 
   // Lazy single-track preview resolver: /api/playlist?preview=<trackId>

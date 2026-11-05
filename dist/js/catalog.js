@@ -1,4 +1,6 @@
-window.CLIPR_CATALOG = [
+// CLIP//R legacy daily catalog — the curated hyperpop track pool used only by Legacy mode.
+// Each entry: { deezerId, artist, title, soundcloud? }. Consumed by js/legacy.js.
+export const CLIPR_CATALOG = [
   { deezerId: 1008321682, artist: "glaive", title: "astrid", soundcloud: "https://soundcloud.com/1glaive/astrid" },
   { deezerId: 2359450265, artist: "glaive", title: "the prom" },
   { deezerId: 1422769872, artist: "glaive", title: "fuck this town" },

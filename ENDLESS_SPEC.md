@@ -58,7 +58,7 @@ through our own origin).
 | ---- | ------- |
 | `dist/index.html` | **New Endless mode** (new main). |
 | `dist/legacy.html` | The **current daily game**, moved verbatim (archive, queue, same rules). |
-| `dist/catalog.js`, `dist/queue.json` | Legacy only. |
+| `dist/js/catalog.js`, `dist/queue.json` | Legacy only. |
 | `tools/queue-editor.html` | Legacy only (unchanged). |
 | `api/playlist.js` | New Vercel serverless function (the keyless Spotify proxy). |
 | `vercel.json` | Add rewrite so `/legacy` serves `dist/legacy.html`. |
