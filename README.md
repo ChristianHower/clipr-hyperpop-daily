@@ -1,16 +1,46 @@
 # CLIP//R
 
-CLIP//R is a daily hyperpop music guessing game inspired by Heardle. Everyone gets the same curated track each day and tries to identify it from the shortest possible preview.
+CLIP//R is a music guessing game inspired by Heardle. The main mode, **Endless**, lets a player paste any public Spotify playlist and guess its tracks from the shortest possible preview, round after round. The original curated daily game ("CLIP//R daily") lives on as the **legacy** version.
 
-Current release: **v0.63**.
+Current release: **v0.80**.
 
 Players begin with 0.5 seconds of audio. A wrong guess or skip unlocks progressively longer clips at 1, 2, 4, 8, and 16 seconds. When the game ends, CLIP//R reveals the track, artist, and album artwork in both the result screen and transmission log, unlocks the full 30-second preview, and links the revealed song to SoundCloud.
 
+## Endless mode (main)
+
+- Paste a public Spotify playlist link (`open.spotify.com/playlist/…`, an `intl-xx` link, or a `spotify:playlist:…` URI). The playlist becomes both the song pool the game draws from and the complete list of accepted guesses.
+- Each round picks a random track from the playlist; after the answer is revealed, **next track** starts a new round. The pool cycles through every track before repeating.
+- **Session scoring** tracks your current streak, best streak, number solved, and a solve-by-clip-length distribution. Session stats reset when you load a new playlist or close the tab — there is no shared daily song and no cross-session streak.
+- Recently loaded playlists are remembered in the browser for quick reloading.
+- Switch between modes with the **Legacy daily** button in Endless and the **← Endless** button in legacy.
+
+### How the playlist import works
+
+Reading a playlist runs through a small serverless function at `/api/playlist` (deployed alongside the site on Vercel). It is required because every relevant Spotify endpoint omits CORS headers — a browser on the site cannot read them directly — and the public embed page is capped at 100 tracks. The function:
+
+1. Reads Spotify's public playlist **embed page** for the name, cover, an anonymous access token, and the first 100 tracks.
+2. For larger playlists, pages the web player's internal `fetchPlaylist` GraphQL with that token to retrieve every track.
+3. Returns a normalized track list to the browser.
+
+The function uses **no Spotify login or API key**.
+
+The browser then matches each Spotify track to a playable **Deezer** preview (reusing the same audio and metadata engine as the daily game) and builds the round from the matches.
+
+### Known limitations
+
+- **Unmatched tracks are dropped.** A playlist track is only playable if it can be matched to a readable Deezer track with a 30-second preview. Matching is best-effort by artist + title (Spotify's keyless path exposes no ISRC), so covers, remixes, live versions, or regionally restricted songs can mis-match or fail to match. Unmatched tracks are excluded from both the song pool and the guess list; the loader reports how many were skipped. This mirrors the gaps documented in [PLAYLIST_IMPORT.md](PLAYLIST_IMPORT.md) for the curated catalog, and is a known problem to be patched — ideally by matching on ISRC once a non-keyless path is available.
+- **The keyless Spotify path is fragile.** The `fetchPlaylist` GraphQL call depends on a persisted-query hash baked into Spotify's web player bundle; when Spotify rebuilds the player the hash rotates and the call returns HTTP 412. The function then falls back to the first 100 embed tracks and flags the import as truncated. The anonymous embed token also expires within ~25–50 minutes and is rate-limited. This relies on an undocumented internal API Spotify can change without notice.
+- **Only public playlists.** Private or deleted playlists cannot be read by id alone and report as unavailable.
+
+## Legacy daily mode
+
+The original daily game is served at `/legacy`. Everyone gets the same curated track each day and tries to identify it from the shortest possible preview.
+
 Wrong guesses from the correct artist or album receive a yellow hint in the transmission log. Album matches take priority, and featured artists count toward an artist match when Deezer lists them as contributors.
 
-The rotation focuses on hyperpop and adjacent internet-pop scenes. See [CATALOG.md](CATALOG.md) for every accepted search option. The current catalog also imports every usable track from the Spotify playlist [is this hyperpop?](https://open.spotify.com/playlist/21BRDwCxzodioo2OnIxIWG); [PLAYLIST_IMPORT.md](PLAYLIST_IMPORT.md) records the import totals and songs that could not be matched to a playable Deezer preview.
+The legacy rotation focuses on hyperpop and adjacent internet-pop scenes. See [CATALOG.md](CATALOG.md) for every accepted search option in legacy mode. That catalog also imports every usable track from the Spotify playlist [is this hyperpop?](https://open.spotify.com/playlist/21BRDwCxzodioo2OnIxIWG); [PLAYLIST_IMPORT.md](PLAYLIST_IMPORT.md) records the import totals and songs that could not be matched to a playable Deezer preview.
 
-## How it works
+### How legacy works
 
 - Track metadata, artwork, and preview audio load from Deezer.
 - SoundCloud links take listeners to the corresponding track after the answer is revealed.
@@ -18,15 +48,24 @@ The rotation focuses on hyperpop and adjacent internet-pop scenes. See [CATALOG.
 - The daily puzzle changes at midnight Eastern time.
 - Players can open the archive (the clock icon) to play or revisit any of the previous four days, using the same rules as the daily puzzle.
 - Player feedback is collected through the public [CLIP//R feedback form](https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform).
-- The game is a static, single-page site with no build step.
 
 ## Run locally
+
+Endless mode needs the `/api/playlist` function, so run it with the Vercel CLI from the repository root:
+
+```sh
+vercel dev
+```
+
+Then open the printed local URL (Endless at `/`, legacy at `/legacy`).
+
+The legacy daily game is a plain static page with no backend, so it can also be served on its own:
 
 ```sh
 python3 -m http.server 4173 --directory dist
 ```
 
-Then open `http://localhost:4173`.
+Then open `http://localhost:4173/legacy.html`. (Endless will load at `http://localhost:4173/` but cannot import playlists without the serverless function.)
 
 ## Private queue editor
 
