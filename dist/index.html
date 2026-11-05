@@ -374,12 +374,55 @@
       const trackMetadata = new Map();
       async function getTrackMetadata(trackId) {
         if (trackMetadata.has(trackId)) return trackMetadata.get(trackId);
-        const request = deezerJsonp(`/track/${trackId}`).catch((error) => { trackMetadata.delete(trackId); throw error; });
+        const request = deezerLimited(() => deezerJsonp(`/track/${trackId}`)).catch((error) => { trackMetadata.delete(trackId); throw error; });
         trackMetadata.set(trackId, request);
         const record = await request;
         trackMetadata.set(trackId, record);
         return record;
       }
+
+      // Deezer rate limiter. Deezer's public API caps requests (~50 per 5s per IP) and returns
+      // "Quota limit exceeded" (error code 4) past that. Resolving a large playlist makes
+      // hundreds of calls, so without pacing most of them fail and the tracks get dropped —
+      // which is why unthrottled resolution found far fewer tracks in the browser than in
+      // sequential testing. This caps concurrency, spaces out request starts, and retries a
+      // quota rejection with backoff instead of discarding the track.
+      const deezerLimiter = (() => {
+        const concurrency = 6;
+        const minGapMs = 90;
+        let active = 0;
+        let lastStart = 0;
+        const queue = [];
+        const pump = () => {
+          if (!queue.length || active >= concurrency) return;
+          const wait = Math.max(0, lastStart + minGapMs - Date.now());
+          if (wait > 0) { setTimeout(pump, wait); return; }
+          const job = queue.shift();
+          active += 1;
+          lastStart = Date.now();
+          Promise.resolve().then(job.fn).then(job.resolve, job.reject).finally(() => { active -= 1; pump(); });
+          pump();
+        };
+        return (fn) => new Promise((resolve, reject) => { queue.push({ fn, resolve, reject }); pump(); });
+      })();
+
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      function isQuotaError(error) { return /quota limit/i.test(error?.message || ""); }
+
+      // Run a Deezer request through the limiter, retrying quota rejections with backoff.
+      function deezerLimited(fn) {
+        return deezerLimiter(async () => {
+          for (let attempt = 0; attempt < 4; attempt += 1) {
+            try { return await fn(); }
+            catch (error) {
+              if (isQuotaError(error) && attempt < 3) { await sleep(400 * (attempt + 1)); continue; }
+              throw error;
+            }
+          }
+          throw new Error("Deezer quota limit exceeded");
+        });
+      }
+
 
       // ---- helpers ----
       const $ = (selector) => document.querySelector(selector);
@@ -514,7 +557,7 @@
 
         async function search(query) {
           try {
-            const data = await deezerJsonp(`/search/track?q=${encodeURIComponent(query)}&limit=10`);
+            const data = await deezerLimited(() => deezerJsonp(`/search/track?q=${encodeURIComponent(query)}&limit=10`));
             return (data && data.data) || [];
           } catch (_) { return []; }
         }
@@ -582,18 +625,15 @@
         const resolved = [];
         const seen = new Set();
         let done = 0;
-        // Resolve in small batches to keep the UI responsive and be gentle on Deezer.
-        const batchSize = 6;
-        for (let i = 0; i < spTracks.length; i += batchSize) {
-          const batch = spTracks.slice(i, i + batchSize);
-          const out = await Promise.all(batch.map((t) => resolveTrack(t)));
-          out.forEach((r) => {
-            done += 1;
-            if (r && !seen.has(r.id)) { seen.add(r.id); resolved.push(r); }
-          });
+        // Fire every track at once; the Deezer limiter paces the underlying requests so we stay
+        // under the quota while letting fast and slow tracks overlap.
+        await Promise.all(spTracks.map(async (t) => {
+          const r = await resolveTrack(t);
+          done += 1;
+          if (r && !seen.has(r.id)) { seen.add(r.id); resolved.push(r); }
           setProgress(done, spTracks.length);
           setLoaderStatus(`Matching tracks… ${done}/${spTracks.length}`);
-        }
+        }));
 
         if (!resolved.length) {
           setLoaderStatus("None of this playlist's tracks could be matched to a playable preview. Try another playlist.");
