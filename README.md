@@ -2,9 +2,15 @@
 
 CLIP//R is a music guessing game inspired by Heardle. The main mode, **Endless**, lets a player paste any public Spotify playlist and guess its tracks from the shortest possible preview, round after round. The original curated daily game ("CLIP//R daily") lives on as the **legacy** version.
 
-Current release: **v0.81**.
+Current release: **v0.85**.
 
 Players begin with 0.5 seconds of audio. A wrong guess or skip unlocks progressively longer clips at 1, 2, 4, 8, and 16 seconds. When the game ends, CLIP//R reveals the track, artist, and album artwork in both the result screen and transmission log, unlocks the full 30-second preview, and links the revealed song to SoundCloud.
+
+Endless mode runs on **health** rather than a fixed round count. A player starts a session with 8 health. Solving on the first 0.5s clip restores a point (capped at 8), 1s is neutral, and each longer clip costs one more point, down to −4 at the 16s clip; letting a track go completely unsolved is an instant wipeout. At 0 health the session ends and the player can restart for a fresh run with full health.
+
+### Streaming playlist load
+
+To cut the wait on large playlists, Endless resolves a **random 100 tracks first**, starts the game immediately, then keeps matching the remaining tracks in the background. Each newly matched track is folded into both the guess list and the round rotation as it arrives (inserted at a random spot in the unplayed remainder, so it can surface within a round or two rather than only after the first 100 are exhausted). Playlists larger than **1000 tracks are rejected** before any matching work begins.
 
 ## Endless mode (main)
 

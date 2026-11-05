@@ -62,6 +62,10 @@
       /* Playlist loader (shown before a playlist is loaded) */
       .loader { max-width: 620px; }
       .loader h1 { font-size: clamp(2.8rem, 7vw, 5.6rem); }
+      /* The DotGothic16 pixel face reads as unevenly spaced with the global negative tracking,
+         so give the loader title neutral tracking and let it wrap naturally instead of a forced
+         break — every word then sits with the same rhythm. */
+      .loader-title { letter-spacing: 0; text-wrap: balance; }
       .loader-form { display: grid; grid-template-columns: 1fr auto; border: 2px solid var(--ink); background: var(--white); margin: 30px 0 14px; }
       .loader-form input { min-width: 0; height: 60px; border: 0; background: transparent; padding: 0 18px; font-size: 1rem; color: var(--ink); }
       .loader-form input::placeholder { color: #8b8b84; }
@@ -115,13 +119,21 @@
       .suggestion small { color: var(--muted); }
 
       .secondary-row { margin-top: 12px; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+      .secondary-left { display: flex; align-items: center; gap: 18px; }
       .skip { border: 0; background: transparent; padding: 8px 0; text-decoration: underline; text-underline-offset: 4px; font-weight: 800; cursor: pointer; }
+      .restart-inline { color: var(--hot); }
       .attempts { font: 700 .74rem monospace; color: var(--muted); text-transform: uppercase; }
 
       .sidebar { border-left: 2px solid var(--ink); background: var(--ink); color: var(--paper); display: flex; flex-direction: column; min-height: 100%; }
       .side-head { padding: 24px; border-bottom: 1px solid #3b3b3b; display: flex; justify-content: space-between; align-items: baseline; }
       .side-head h2 { margin: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: .05em; }
       .counter { color: var(--acid); font: 800 .75rem monospace; }
+      .healthbar { display: flex; align-items: center; gap: 10px; padding: 14px 24px; border-bottom: 1px solid #3b3b3b; }
+      .health-label { font: 700 .6rem/1 monospace; letter-spacing: .1em; text-transform: uppercase; color: #9a9a92; }
+      .health-pips { display: flex; gap: 5px; flex: 1; }
+      .health-pips .pip { flex: 1; height: 12px; border: 1px solid #3b3b3b; background: transparent; }
+      .health-pips .pip.on { background: var(--acid); border-color: var(--acid); }
+      .health-value { font: 900 .78rem/1 monospace; color: var(--acid); }
       .scoreboard { display: grid; grid-template-columns: repeat(3, 1fr); border-bottom: 1px solid #3b3b3b; }
       .scoreboard div { padding: 14px 10px; text-align: center; border-right: 1px solid #3b3b3b; }
       .scoreboard div:last-child { border-right: 0; }
@@ -221,7 +233,7 @@
           <!-- Loader view: shown until a playlist is loaded -->
           <div class="loader" id="loaderView">
             <p class="eyebrow">CLIP//R // Endless</p>
-            <h1 id="game-title">bring your<br />own playlist.</h1>
+            <h1 id="game-title" class="loader-title">bring your own playlist.</h1>
             <p class="prompt">Paste a public Spotify playlist.</p>
             <form class="loader-form" id="loaderForm">
               <input id="playlistInput" type="text" inputmode="url" placeholder="https://open.spotify.com/playlist/…" autocomplete="off" aria-label="Spotify playlist link" />
@@ -239,12 +251,12 @@
           <!-- Game view: shown once a playlist is loaded -->
           <div id="gameView" hidden>
             <p class="eyebrow">Round <span id="roundNumber">#1</span></p>
-            <h1>guess the song.</h1>
+            <h1 class="game-title">guess the song.</h1>
+            <p class="prompt">Identify this track in as few seconds as possible. A wrong guess or skip unlocks a longer clip.</p>
             <div class="playlist-banner" id="playlistBanner">
               <span id="playlistBannerText"></span>
               <button type="button" id="changePlaylistButton">change</button>
             </div>
-            <p class="prompt">Identify this track in as few seconds as possible. A wrong guess or skip unlocks a longer clip.</p>
 
             <div class="timeline" id="timeline" aria-label="Audio preview timeline">
               <div class="playback-fill" id="playbackFill"></div>
@@ -273,7 +285,10 @@
               <div class="suggestions" id="suggestions" role="listbox" aria-label="Track suggestions"></div>
             </div>
             <div class="secondary-row">
-              <button class="skip" id="skipButton" disabled>Skip</button>
+              <div class="secondary-left">
+                <button class="skip" id="skipButton" disabled>Skip</button>
+                <button class="skip restart-inline" id="restartInline" type="button">Restart</button>
+              </div>
               <span class="attempts" id="attemptText">6 attempts left</span>
             </div>
           </div>
@@ -281,6 +296,11 @@
 
         <aside class="sidebar" aria-label="Attempts">
           <div class="side-head"><h2>Transmission log</h2><span class="counter" id="sideCounter">0 / 6</span></div>
+          <div class="healthbar" aria-label="Health">
+            <span class="health-label">Health</span>
+            <span class="health-pips" id="healthPips"></span>
+            <span class="health-value" id="healthValue">8/8</span>
+          </div>
           <div class="scoreboard">
             <div><span class="num" id="scoreStreak">0</span><span class="lbl">streak</span></div>
             <div><span class="num" id="scoreBest">0</span><span class="lbl">best</span></div>
@@ -296,7 +316,7 @@
 
       <footer>
         <span>Unlimited · bring any playlist</span>
-        <span class="footer-center">CLIP//R Endless v0.81 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
+        <span class="footer-center">CLIP//R Endless v0.85 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
         <span class="footer-credit">Preview audio and metadata from <a href="https://www.deezer.com" target="_blank" rel="noopener">Deezer</a> · playlists via Spotify</span>
       </footer>
     </div>
@@ -311,7 +331,7 @@
           <div class="answer-details"><strong id="answerTrack"></strong><span class="artist-link" id="answerArtist"></span></div>
         </a>
         <p id="resultCopy"></p>
-        <div class="modal-actions"><button id="nextTrackButton">next track →</button><button id="resultPlayButton" class="secondary">play 30 sec</button><a class="deezer-link" id="deezerLink" href="https://www.deezer.com" target="_blank" rel="noopener">open in Deezer</a></div>
+        <div class="modal-actions"><button id="nextTrackButton">next track →</button><button id="restartButton" hidden>restart session ↺</button><button id="resultPlayButton" class="secondary">play 30 sec</button><a class="deezer-link" id="deezerLink" href="https://www.deezer.com" target="_blank" rel="noopener">open in Deezer</a></div>
       </div>
     </div>
 
@@ -321,7 +341,8 @@
         <span class="kicker">CLIP//R protocol</span>
         <h2 id="infoTitle">hear it.<br />clock it.</h2>
         <p>Paste a public Spotify playlist. Its tracks become the song pool and the full list of accepted guesses.</p>
-        <p>Press play, then choose a track. Every miss unlocks more of the signal: 0.5, 1, 2, 4, 8, then 16 seconds. Solve it, hit <strong>next track</strong>, and keep your streak alive — Endless never runs out.</p>
+        <p>Press play, then choose a track. Every miss unlocks more of the signal: 0.5, 1, 2, 4, 8, then 16 seconds. Solve it, hit <strong>next track</strong>, and keep your streak alive.</p>
+        <p>You start with <strong>8 health</strong>. Solving on the 0.5s clip heals +1 (capped at 8); 1s is neutral; every longer clip costs one more, down to −4 at 16s. Letting a track beat you entirely is an instant wipeout. At 0 health the run ends — hit <strong>restart</strong> for a fresh session with full health.</p>
         <p>A yellow ARTIST or ALBUM marker means your guess shares that detail with the answer.</p>
         <p>Track information and previews are matched from Deezer. Tracks without a playable Deezer preview are skipped.</p>
         <div class="modal-actions"><button data-close>let’s play</button></div>
@@ -350,6 +371,21 @@
       const previewDuration = 30;
       const RECENTS_KEY = "clipr-endless-recents";
       const MAX_RECENTS = 6;
+
+      // ---- health system (v0.85) ----
+      // Start with 8 HP, capped at 8 (the +1 never overflows). Health changes by how much
+      // signal you needed to solve, indexed to clipSteps: solving on the 0.5s clip gains a
+      // point, 1s is neutral, and every longer clip costs one more, bottoming out at -4 at
+      // 16s. A full miss (all attempts used without solving) is an instant kill regardless of
+      // remaining health. Reaching 0 HP ends the session.
+      const MAX_HEALTH = 8;
+      const START_HEALTH = 8;
+      // Δ health per clip step, aligned to clipSteps = [0.5, 1, 2, 4, 8, 16].
+      const HEALTH_DELTA = [1, 0, -1, -2, -3, -4];
+      // How many tracks to resolve before the game starts; the rest stream in afterward.
+      const INITIAL_BATCH = 100;
+      // Reject playlists larger than this before any matching work happens.
+      const MAX_PLAYLIST_TRACKS = 1000;
 
       // ---- Deezer JSONP (reused from the daily game; dodges any CORS edge cases) ----
       function deezerJsonp(path) {
@@ -450,7 +486,9 @@
       let submittingGuess = false;
       let playing = false;
       let suggestionIndex = -1;
-      const session = { solved: 0, played: 0, streak: 0, best: 0, dist: Array(maxAttempts).fill(0) };
+      let resolveToken = 0;      // invalidates background resolution when a new playlist loads
+      let backgroundResolving = false;
+      const session = { solved: 0, played: 0, streak: 0, best: 0, health: START_HEALTH, dead: false, dist: Array(maxAttempts).fill(0) };
 
       const input = $("#guessInput");
       const suggestions = $("#suggestions");
@@ -621,19 +659,39 @@
         }
 
         const spTracks = (data.tracks || []).filter((t) => t.isPlayable !== false && t.title);
-        setLoaderStatus(`Matching ${spTracks.length} tracks to playable previews…`);
+
+        // Reject oversized playlists before doing any matching work.
+        if (spTracks.length > MAX_PLAYLIST_TRACKS) {
+          setLoaderStatus(`That playlist has ${spTracks.length} songs. Please link a playlist with fewer than ${MAX_PLAYLIST_TRACKS} songs.`);
+          $("#loaderProgress").hidden = true;
+          $("#loadButton").disabled = false;
+          $("#playlistInput").disabled = false;
+          return;
+        }
+
+        // Invalidate any background resolution still running from a previous playlist.
+        const token = ++resolveToken;
+
+        // Shuffle the raw Spotify tracks so the first batch we resolve is a random sample of
+        // the whole playlist, not just its opening tracks.
+        const shuffledSp = shuffle([...spTracks]);
+        const firstBatch = shuffledSp.slice(0, INITIAL_BATCH);
+        const restBatch = shuffledSp.slice(INITIAL_BATCH);
+
+        setLoaderStatus(`Matching ${Math.min(firstBatch.length, spTracks.length)} of ${spTracks.length} tracks…`);
         const resolved = [];
         const seen = new Set();
         let done = 0;
-        // Fire every track at once; the Deezer limiter paces the underlying requests so we stay
-        // under the quota while letting fast and slow tracks overlap.
-        await Promise.all(spTracks.map(async (t) => {
+        // Resolve the first batch up front; the Deezer limiter paces the underlying requests.
+        await Promise.all(firstBatch.map(async (t) => {
           const r = await resolveTrack(t);
           done += 1;
           if (r && !seen.has(r.id)) { seen.add(r.id); resolved.push(r); }
-          setProgress(done, spTracks.length);
-          setLoaderStatus(`Matching tracks… ${done}/${spTracks.length}`);
+          setProgress(done, firstBatch.length);
+          setLoaderStatus(`Matching tracks… ${done}/${firstBatch.length}`);
         }));
+
+        if (token !== resolveToken) return; // a newer load superseded this one
 
         if (!resolved.length) {
           setLoaderStatus("None of this playlist's tracks could be matched to a playable preview. Try another playlist.");
@@ -648,7 +706,8 @@
           name: data.name || "Spotify playlist",
           total: data.total || spTracks.length,
           loaded: resolved.length,
-          skipped: spTracks.length - resolved.length,
+          skipped: firstBatch.length - resolved.length,
+          pending: restBatch.length,
           truncated: Boolean(data.truncated)
         };
         saveRecent(id, playlistMeta.name);
@@ -657,8 +716,7 @@
         order = shuffle([...tracks.keys()]);
         orderPos = 0;
         round = 0;
-        session.solved = 0; session.played = 0; session.streak = 0; session.best = 0;
-        session.dist = Array(maxAttempts).fill(0);
+        resetSessionStats();
 
         $("#loadButton").disabled = false;
         $("#playlistInput").disabled = false;
@@ -666,17 +724,91 @@
         $("#loaderView").hidden = true;
         $("#gameView").hidden = false;
 
-        const bannerBits = [`${playlistMeta.name} · ${playlistMeta.loaded} playable`];
-        if (playlistMeta.skipped) bannerBits.push(`${playlistMeta.skipped} skipped`);
-        if (playlistMeta.truncated) bannerBits.push("first 100 only");
-        $("#playlistBannerText").textContent = bannerBits.join(" · ");
-        $("#playlistBanner").hidden = false;
+        renderPlaylistBanner();
 
         updateScoreboard();
         nextRound();
         let toastMsg = `Loaded ${playlistMeta.loaded} tracks`;
-        if (playlistMeta.skipped) toastMsg += ` · ${playlistMeta.skipped} unavailable`;
+        if (restBatch.length) toastMsg += ` · ${restBatch.length} more loading`;
+        else if (playlistMeta.skipped) toastMsg += ` · ${playlistMeta.skipped} unavailable`;
         toast(toastMsg);
+
+        // Stream the remaining tracks in the background and fold them into the live pool.
+        if (restBatch.length) resolveRemaining(restBatch, seen, token);
+      }
+
+      // Resolve the leftover Spotify tracks after the game has already started, adding each
+      // match into the live pool and the unplayed remainder of the rotation so a
+      // background-resolved song can appear as soon as the next round.
+      async function resolveRemaining(spTracks, seen, token) {
+        backgroundResolving = true;
+        let added = 0;
+        try {
+          await Promise.all(spTracks.map(async (t) => {
+            const r = await resolveTrack(t);
+            if (token !== resolveToken) return;      // playlist changed; abandon
+            if (!r || seen.has(r.id)) return;
+            seen.add(r.id);
+            const index = tracks.length;
+            tracks.push(r);
+            insertIntoRotation(index);
+            added += 1;
+            if (playlistMeta) {
+              playlistMeta.loaded = tracks.length;
+              playlistMeta.pending = Math.max(0, playlistMeta.pending - 1);
+              renderPlaylistBanner();
+            }
+          }));
+        } finally {
+          if (token === resolveToken) {
+            backgroundResolving = false;
+            if (playlistMeta) { playlistMeta.pending = 0; renderPlaylistBanner(); }
+            if (added) toast(`${added} more tracks added to the pool`);
+          }
+        }
+      }
+
+      // Drop a newly-resolved track into the still-unplayed part of the rotation at a random
+      // position, so it can surface in an upcoming round rather than only after the initial
+      // batch has been exhausted. Repeats are still avoided until the pool cycles.
+      function insertIntoRotation(trackIndex) {
+        if (orderPos >= order.length) { order.push(trackIndex); return; }
+        const span = order.length - orderPos;
+        const at = orderPos + Math.floor(Math.random() * (span + 1));
+        order.splice(at, 0, trackIndex);
+      }
+
+      function resetSessionStats() {
+        session.solved = 0; session.played = 0; session.streak = 0; session.best = 0;
+        session.health = START_HEALTH; session.dead = false;
+        session.dist = Array(maxAttempts).fill(0);
+      }
+
+      // Restart = a brand-new session on the same already-loaded playlist: reshuffle the
+      // rotation, reset the round counter, stats, streak, and health, then deal a fresh round.
+      // The expensive Deezer-matched pool is kept as-is (no re-loading).
+      function restartSession() {
+        if (!tracks.length) return;
+        stopPreview();
+        order = shuffle([...tracks.keys()]);
+        orderPos = 0;
+        round = 0;
+        resetSessionStats();
+        updateScoreboard();
+        $("#nextTrackButton").hidden = false;
+        $("#restartButton").hidden = true;
+        nextRound();
+        toast("new session · health restored");
+      }
+
+      function renderPlaylistBanner() {
+        if (!playlistMeta) return;
+        const bannerBits = [`${playlistMeta.name} · ${playlistMeta.loaded} playable`];
+        if (playlistMeta.pending) bannerBits.push(`+${playlistMeta.pending} loading`);
+        if (playlistMeta.skipped) bannerBits.push(`${playlistMeta.skipped} skipped`);
+        if (playlistMeta.truncated) bannerBits.push("first 100 only");
+        $("#playlistBannerText").textContent = bannerBits.join(" · ");
+        $("#playlistBanner").hidden = false;
       }
 
       function shuffle(arr) {
@@ -694,6 +826,7 @@
 
       // ---- round lifecycle ----
       async function nextRound() {
+        if (session.dead) return; // session is over; player must restart
         const run = ++roundRun;
         stopPreview();
         catalogReady = false;
@@ -778,7 +911,13 @@
         playButton.setAttribute("aria-label", catalogReady ? `Play ${formatDuration(duration)} preview` : "Loading preview");
         $("#sideCounter").textContent = `${state.attempts.length} / ${maxAttempts}`;
         const attemptsLeft = maxAttempts - state.attempts.length;
-        $("#attemptText").textContent = state.over ? (state.won ? "signal identified" : "transmission ended") : `${attemptsLeft} attempt${attemptsLeft === 1 ? "" : "s"} left`;
+        if (state.over) {
+          $("#attemptText").textContent = state.won ? "signal identified" : "transmission ended";
+        } else {
+          const d = HEALTH_DELTA[currentStep()] || 0;
+          const stake = d > 0 ? `solve now: +${d} health` : d < 0 ? `solve now: −${Math.abs(d)} health` : "solve now: no change";
+          $("#attemptText").textContent = `${attemptsLeft} attempt${attemptsLeft === 1 ? "" : "s"} left · ${stake}`;
+        }
         playButton.disabled = !catalogReady;
         input.disabled = !catalogReady || state.over || submittingGuess;
         $("#submitGuess").disabled = !catalogReady || state.over || submittingGuess;
@@ -800,11 +939,25 @@
         $("#scoreStreak").textContent = session.streak;
         $("#scoreBest").textContent = session.best;
         $("#scoreSolved").textContent = session.solved;
+        renderHealth();
+      }
+
+      function renderHealth() {
+        const wrap = $("#healthPips");
+        if (!wrap) return;
+        $("#healthValue").textContent = `${session.health}/${MAX_HEALTH}`;
+        wrap.innerHTML = "";
+        for (let i = 0; i < MAX_HEALTH; i++) {
+          const pip = document.createElement("span");
+          pip.className = "pip" + (i < session.health ? " on" : "");
+          wrap.appendChild(pip);
+        }
       }
 
       function filteredTracks() {
         const query = normalize(input.value);
-        const matches = query ? tracks.filter((t) => normalize(label(t)).includes(query)) : [...tracks];
+        if (!query) return []; // no suggestions until the player starts typing
+        const matches = tracks.filter((t) => normalize(label(t)).includes(query));
         return matches.sort((a, b) =>
           a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true })
           || a.artist.localeCompare(b.artist, undefined, { sensitivity: "base", numeric: true })
@@ -910,17 +1063,27 @@
           session.solved += 1;
           session.streak += 1;
           session.best = Math.max(session.best, session.streak);
-          session.dist[Math.min(state.attempts.length, maxAttempts - 1)] += 1;
+          const step = Math.min(state.attempts.length, maxAttempts - 1);
+          session.dist[step] += 1;
+          // Health change is keyed to the clip the player solved on.
+          const delta = HEALTH_DELTA[step] || 0;
+          session.health = Math.min(MAX_HEALTH, Math.max(0, session.health + delta));
+          state.healthDelta = delta;
         } else {
+          // A full miss is an instant kill, regardless of remaining health.
           session.streak = 0;
+          session.health = 0;
+          state.healthDelta = null; // signals "wiped out"
         }
+        if (session.health <= 0) session.dead = true;
         updateScoreboard();
       }
 
       function reveal() {
         if (!puzzle || !state.over) return;
-        $("#resultKicker").textContent = state.won ? "Signal found" : "Signal lost";
-        $("#resultTitle").textContent = state.won ? "nailed it." : "too loud.";
+        const dead = session.dead;
+        $("#resultKicker").textContent = dead ? "Flatline" : (state.won ? "Signal found" : "Signal lost");
+        $("#resultTitle").textContent = dead ? "game over." : (state.won ? "nailed it." : "too loud.");
         $("#answerTrack").textContent = puzzle.title;
         $("#answerArtist").textContent = puzzle.artist;
         $("#resultSongLink").href = puzzle.soundcloud;
@@ -935,9 +1098,23 @@
         $("#transmissionAnswer").setAttribute("aria-label", `Open ${puzzle.artist} — ${puzzle.title} on SoundCloud`);
         $("#transmissionAnswer").hidden = false;
         $("#deezerLink").href = puzzle.link;
-        $("#resultCopy").textContent = state.won
-          ? `You got it with ${formatDuration(clipSteps[currentStep()])} of signal. Streak: ${session.streak}.`
-          : "Streak reset. Load the next track and start again.";
+        let copy;
+        if (session.dead) {
+          copy = state.won
+            ? `Solved with ${formatDuration(clipSteps[currentStep()])} of signal, but that −${Math.abs(state.healthDelta)} drained the last of your health. You solved ${session.solved} · best streak ${session.best}. Restart to run it back.`
+            : `You ran out of signal and flatlined. You solved ${session.solved} · best streak ${session.best}. Restart to run it back.`;
+        } else if (state.won) {
+          const d = state.healthDelta;
+          const healthNote = d > 0 ? `+${d} health` : d < 0 ? `−${Math.abs(d)} health` : "no health lost";
+          copy = `You got it with ${formatDuration(clipSteps[currentStep()])} of signal — ${healthNote}. Health ${session.health}/${MAX_HEALTH} · streak ${session.streak}.`;
+        } else {
+          copy = "Full miss — you flatlined. Restart to run it back.";
+        }
+        $("#resultCopy").textContent = copy;
+
+        // When the session is over, the result modal offers a restart instead of next track.
+        $("#nextTrackButton").hidden = session.dead;
+        $("#restartButton").hidden = !session.dead;
         openModal("resultModal");
       }
 
@@ -1001,6 +1178,8 @@
       playButton.addEventListener("click", playSignal);
       resultPlayButton.addEventListener("click", playSignal);
       $("#nextTrackButton").addEventListener("click", () => { closeModals(); nextRound(); });
+      $("#restartButton").addEventListener("click", () => { closeModals(); restartSession(); });
+      $("#restartInline").addEventListener("click", () => restartSession());
       $("#helpButton").addEventListener("click", () => openModal("infoModal"));
       $("#statsButton").addEventListener("click", () => {
         const rate = session.played ? Math.round((session.solved / session.played) * 100) : 0;
@@ -1016,6 +1195,8 @@
       });
 
       $("#changePlaylistButton").addEventListener("click", () => {
+        resolveToken += 1; // stop any background resolution from the current playlist
+        backgroundResolving = false;
         stopPreview();
         $("#gameView").hidden = true;
         $("#loaderView").hidden = false;
