@@ -17,6 +17,7 @@ To cut the wait on large playlists, Endless resolves a **random 100 tracks first
 - Paste a public Spotify playlist link (`open.spotify.com/playlist/…`, an `intl-xx` link, or a `spotify:playlist:…` URI). The playlist becomes both the song pool the game draws from and the complete list of accepted guesses.
 - Each round picks a random track from the playlist; after the answer is revealed, **next track** starts a new round. The pool cycles through every track before repeating.
 - **Session scoring** tracks your current streak, best streak, number solved, and a solve-by-clip-length distribution. Session stats reset when you load a new playlist or close the tab — there is no shared daily song and no cross-session streak.
+- **Switching modes keeps your progress.** The loaded playlist, resolved pool, health, scoreboard, and the exact round in progress are saved in the browser, so leaving for **Legacy daily** and coming back to Endless resumes where you left off (the snapshot is only replaced when you load a new playlist or restart).
 - Recently loaded playlists are remembered in the browser for quick reloading.
 - Switch between modes with the **Legacy daily** button in Endless and the **← Endless** button in legacy.
 

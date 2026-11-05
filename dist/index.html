@@ -371,6 +371,7 @@
       const previewDuration = 30;
       const RECENTS_KEY = "clipr-endless-recents";
       const MAX_RECENTS = 6;
+      const SESSION_KEY = "clipr-endless-session";
 
       // ---- health system (v0.85) ----
       // Start with 8 HP, capped at 8 (the +1 never overflows). Health changes by how much
@@ -488,6 +489,9 @@
       let suggestionIndex = -1;
       let resolveToken = 0;      // invalidates background resolution when a new playlist loads
       let backgroundResolving = false;
+      let currentPlaylistId = null;  // id of the loaded playlist (for persistence)
+      let pendingSpTracks = [];      // Spotify tracks not yet resolved (for persistence/resume)
+      let restoring = false;         // true while rehydrating a saved session
       const session = { solved: 0, played: 0, streak: 0, best: 0, health: START_HEALTH, dead: false, dist: Array(maxAttempts).fill(0) };
 
       const input = $("#guessInput");
@@ -535,6 +539,46 @@
           ul.appendChild(li);
         });
       }
+
+      // ---- session persistence (survives switching between Endless and Legacy) ----
+      // The resolved pool, rotation, scoreboard, health, and the in-progress round are saved to
+      // localStorage so navigating to /legacy and back resumes exactly where you left off. Only
+      // lightweight data is stored: per-track cover/preview/album metadata is re-fetched from
+      // Deezer by id on restore. Any tracks still streaming in the background when the snapshot
+      // is taken are kept as `pending` and resume resolving after a restore. The snapshot is
+      // never cleared automatically — loading a new playlist or restarting overwrites it.
+      function saveSession() {
+        if (restoring) return;                 // don't clobber the snapshot mid-rehydrate
+        if (!tracks.length || !currentPlaylistId) return;
+        try {
+          const snapshot = {
+            v: 1,
+            playlistId: currentPlaylistId,
+            playlistMeta,
+            tracks,                              // [{ id, artist, title }]
+            pending: pendingSpTracks,            // unresolved Spotify tracks to resume
+            order,
+            orderPos,
+            round,
+            session,
+            puzzleId: puzzle ? puzzle.id : null,
+            roundState: puzzle ? { attempts: state.attempts, over: state.over, won: state.won, healthDelta: state.healthDelta ?? null } : null
+          };
+          localStorage.setItem(SESSION_KEY, JSON.stringify(snapshot));
+        } catch (_) { /* quota or serialization issue — skip silently */ }
+      }
+
+      function loadSavedSession() {
+        try {
+          const raw = localStorage.getItem(SESSION_KEY);
+          if (!raw) return null;
+          const snap = JSON.parse(raw);
+          if (!snap || snap.v !== 1 || !Array.isArray(snap.tracks) || !snap.tracks.length) return null;
+          return snap;
+        } catch (_) { return null; }
+      }
+
+      function clearSavedSession() { try { localStorage.removeItem(SESSION_KEY); } catch (_) {} }
 
       // ---- loading a playlist ----
       function setLoaderStatus(text) { $("#loaderStatus").textContent = text || ""; }
@@ -711,12 +755,15 @@
           truncated: Boolean(data.truncated)
         };
         saveRecent(id, playlistMeta.name);
+        currentPlaylistId = id;
+        pendingSpTracks = restBatch.slice();   // remaining unresolved tracks (for persistence/resume)
 
         // reset session for the new playlist
         order = shuffle([...tracks.keys()]);
         orderPos = 0;
         round = 0;
         resetSessionStats();
+        clearSavedSession();                   // a fresh playlist replaces any prior snapshot
 
         $("#loadButton").disabled = false;
         $("#playlistInput").disabled = false;
@@ -728,6 +775,7 @@
 
         updateScoreboard();
         nextRound();
+        saveSession();
         let toastMsg = `Loaded ${playlistMeta.loaded} tracks`;
         if (restBatch.length) toastMsg += ` · ${restBatch.length} more loading`;
         else if (playlistMeta.skipped) toastMsg += ` · ${playlistMeta.skipped} unavailable`;
@@ -739,30 +787,41 @@
 
       // Resolve the leftover Spotify tracks after the game has already started, adding each
       // match into the live pool and the unplayed remainder of the rotation so a
-      // background-resolved song can appear as soon as the next round.
+      // background-resolved song can appear as soon as the next round. Each processed track is
+      // removed from the persisted `pendingSpTracks` list so a snapshot taken mid-stream resumes
+      // only the still-unresolved remainder.
       async function resolveRemaining(spTracks, seen, token) {
         backgroundResolving = true;
         let added = 0;
+        let sinceSave = 0;
         try {
           await Promise.all(spTracks.map(async (t) => {
             const r = await resolveTrack(t);
             if (token !== resolveToken) return;      // playlist changed; abandon
-            if (!r || seen.has(r.id)) return;
-            seen.add(r.id);
-            const index = tracks.length;
-            tracks.push(r);
-            insertIntoRotation(index);
-            added += 1;
+            // This track is now processed — drop it from the pending/resume list.
+            const pi = pendingSpTracks.indexOf(t);
+            if (pi !== -1) pendingSpTracks.splice(pi, 1);
+            if (r && !seen.has(r.id)) {
+              seen.add(r.id);
+              const index = tracks.length;
+              tracks.push(r);
+              insertIntoRotation(index);
+              added += 1;
+            }
             if (playlistMeta) {
               playlistMeta.loaded = tracks.length;
-              playlistMeta.pending = Math.max(0, playlistMeta.pending - 1);
+              playlistMeta.pending = pendingSpTracks.length;
               renderPlaylistBanner();
             }
+            // Persist occasionally so a switch mid-stream keeps most of the resolved pool.
+            if (++sinceSave >= 10) { sinceSave = 0; saveSession(); }
           }));
         } finally {
           if (token === resolveToken) {
             backgroundResolving = false;
+            pendingSpTracks = [];
             if (playlistMeta) { playlistMeta.pending = 0; renderPlaylistBanner(); }
+            saveSession();
             if (added) toast(`${added} more tracks added to the pool`);
           }
         }
@@ -825,15 +884,20 @@
       }
 
       // ---- round lifecycle ----
-      async function nextRound() {
-        if (session.dead) return; // session is over; player must restart
+      // When `resume` is provided ({ selected, roundState }), rebuild that exact round (same
+      // puzzle + attempts so far) instead of drawing a new track — used when restoring a saved
+      // session after switching back from Legacy.
+      async function nextRound(resume) {
+        if (!resume && session.dead) return; // session is over; player must restart
         const run = ++roundRun;
         stopPreview();
         catalogReady = false;
         submittingGuess = false;
-        state = { attempts: [], over: false, won: false };
+        state = resume && resume.roundState
+          ? { attempts: resume.roundState.attempts || [], over: !!resume.roundState.over, won: !!resume.roundState.won, healthDelta: resume.roundState.healthDelta ?? undefined }
+          : { attempts: [], over: false, won: false };
         puzzle = null;
-        round += 1;
+        if (resume) { round = resume.round; } else { round += 1; }
         $("#roundNumber").textContent = `#${round}`;
         input.value = "";
         input.placeholder = "Loading track…";
@@ -848,7 +912,7 @@
         closeModals();
         render();
 
-        const selected = tracks[nextTrackIndex()];
+        const selected = resume ? resume.selected : tracks[nextTrackIndex()];
         try {
           const record = await getTrackMetadata(selected.id);
           if (run !== roundRun) return;
@@ -873,7 +937,8 @@
           input.placeholder = "Search artist or track…";
           playButton.textContent = "▶";
           render();
-          input.focus();
+          if (resume && state.over) { reveal(); } else { input.focus(); }
+          if (!resume) saveSession();
         } catch (error) {
           if (run !== roundRun) return;
           // A dead track shouldn't trap the player — advance automatically.
@@ -1035,6 +1100,7 @@
           if (submissionState.attempts.length >= maxAttempts) finishLoss();
           render();
           if (!state.over) {
+            saveSession();
             if (guessType === "album") toast("same album — more signal unlocked");
             else if (guessType === "artist") toast("right artist — more signal unlocked");
             else toast("nope — more signal unlocked");
@@ -1047,6 +1113,7 @@
         state.attempts.push({ type: "skip", text: "Skipped" });
         if (state.attempts.length >= maxAttempts) finishLoss();
         render();
+        if (!state.over) saveSession();
       }
 
       function finishLoss() {
@@ -1077,6 +1144,7 @@
         }
         if (session.health <= 0) session.dead = true;
         updateScoreboard();
+        saveSession();
       }
 
       function reveal() {
@@ -1210,8 +1278,66 @@
         startPlaylist(id);
       });
 
+      // ---- restore a saved session on load (e.g. after switching back from Legacy) ----
+      async function restoreSession(snap) {
+        restoring = true;
+        try {
+          tracks = snap.tracks;
+          playlistMeta = snap.playlistMeta || null;
+          currentPlaylistId = snap.playlistId || null;
+          pendingSpTracks = Array.isArray(snap.pending) ? snap.pending : [];
+          order = Array.isArray(snap.order) && snap.order.length ? snap.order : shuffle([...tracks.keys()]);
+          orderPos = Number.isInteger(snap.orderPos) ? snap.orderPos : 0;
+          round = Number.isInteger(snap.round) ? snap.round : 0;
+          if (snap.session && typeof snap.session === "object") {
+            Object.assign(session, snap.session);
+            if (!Array.isArray(session.dist)) session.dist = Array(maxAttempts).fill(0);
+          }
+
+          $("#loaderView").hidden = true;
+          $("#gameView").hidden = false;
+          renderPlaylistBanner();
+          updateScoreboard();
+
+          // Rebuild the exact round the player was on, by track id.
+          const selected = (snap.puzzleId != null && tracks.find((t) => t.id === snap.puzzleId)) || null;
+          if (selected) {
+            await nextRound({ selected, roundState: snap.roundState, round });
+          } else {
+            // No recoverable current puzzle — deal a fresh round (unless the run had ended).
+            if (session.dead) { restoring = false; $("#restartButton").hidden = false; $("#nextTrackButton").hidden = true; return; }
+            round = Math.max(0, round - 1); // nextRound will increment
+            await nextRound();
+          }
+        } catch (_) {
+          // Corrupt snapshot — fall back to the loader.
+          $("#gameView").hidden = true;
+          $("#loaderView").hidden = false;
+        } finally {
+          restoring = false;
+        }
+
+        // Resume streaming any tracks that hadn't resolved before the switch.
+        if (pendingSpTracks.length) {
+          const token = ++resolveToken;
+          const seen = new Set(tracks.map((t) => t.id));
+          resolveRemaining(pendingSpTracks.slice(), seen, token);
+        }
+        toast("resumed your session");
+      }
+
+      // Flush the latest state when the page is hidden or unloaded, so a navigation to Legacy
+      // (or closing the tab) always captures the current round.
+      window.addEventListener("pagehide", saveSession);
+      document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") saveSession(); });
+
       renderRecents();
-      $("#playlistInput").focus();
+      const saved = loadSavedSession();
+      if (saved) {
+        restoreSession(saved);
+      } else {
+        $("#playlistInput").focus();
+      }
     </script>
   </body>
 </html>
