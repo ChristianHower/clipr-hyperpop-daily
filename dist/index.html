@@ -411,7 +411,9 @@
       const trackMetadata = new Map();
       async function getTrackMetadata(trackId) {
         if (trackMetadata.has(trackId)) return trackMetadata.get(trackId);
-        const request = deezerLimited(() => deezerJsonp(`/track/${trackId}`)).catch((error) => { trackMetadata.delete(trackId); throw error; });
+        // Interactive: the current round and guess classification both wait on this, so it jumps
+        // ahead of background playlist resolution in the limiter.
+        const request = deezerLimited(() => deezerJsonp(`/track/${trackId}`), true).catch((error) => { trackMetadata.delete(trackId); throw error; });
         trackMetadata.set(trackId, request);
         const record = await request;
         trackMetadata.set(trackId, record);
@@ -429,8 +431,14 @@
         const minGapMs = 90;
         let active = 0;
         let lastStart = 0;
-        const queue = [];
+        // Two lanes: interactive requests (a guess classification, the current round's track
+        // metadata) jump ahead of the bulk background playlist resolution so a guess never waits
+        // behind hundreds of queued matching calls. Both lanes still share the same concurrency
+        // and spacing, so the Deezer quota protection is unchanged.
+        const priorityQueue = [];
+        const backgroundQueue = [];
         const pump = () => {
+          const queue = priorityQueue.length ? priorityQueue : backgroundQueue;
           if (!queue.length || active >= concurrency) return;
           const wait = Math.max(0, lastStart + minGapMs - Date.now());
           if (wait > 0) { setTimeout(pump, wait); return; }
@@ -440,14 +448,18 @@
           Promise.resolve().then(job.fn).then(job.resolve, job.reject).finally(() => { active -= 1; pump(); });
           pump();
         };
-        return (fn) => new Promise((resolve, reject) => { queue.push({ fn, resolve, reject }); pump(); });
+        return (fn, priority = false) => new Promise((resolve, reject) => {
+          (priority ? priorityQueue : backgroundQueue).push({ fn, resolve, reject });
+          pump();
+        });
       })();
 
       const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
       function isQuotaError(error) { return /quota limit/i.test(error?.message || ""); }
 
       // Run a Deezer request through the limiter, retrying quota rejections with backoff.
-      function deezerLimited(fn) {
+      // Pass priority=true for interactive requests that a player is waiting on.
+      function deezerLimited(fn, priority = false) {
         return deezerLimiter(async () => {
           for (let attempt = 0; attempt < 4; attempt += 1) {
             try { return await fn(); }
@@ -457,7 +469,7 @@
             }
           }
           throw new Error("Deezer quota limit exceeded");
-        });
+        }, priority);
       }
 
 
@@ -1088,23 +1100,30 @@
           render();
           reveal();
         } else {
-          submittingGuess = true;
+          // Optimistic commit: register the miss and unlock the next clip immediately instead
+          // of blocking on Deezer classification. The attempt shows as a plain MISS right away;
+          // when classification resolves (it may wait on the limiter while a playlist is still
+          // loading) the marker is upgraded in place to ARTIST/ALBUM.
           suggestions.classList.remove("open");
-          render();
-          let guessType = "guess";
-          try { guessType = await classifyGuess(selected, submissionPuzzle); } catch (_) {}
-          if (submissionRun !== roundRun || state !== submissionState) return;
-          submittingGuess = false;
-          submissionState.attempts.push({ type: guessType, text: label(selected) });
+          const attempt = { type: "guess", text: label(selected) };
+          submissionState.attempts.push(attempt);
           input.value = "";
           if (submissionState.attempts.length >= maxAttempts) finishLoss();
           render();
           if (!state.over) {
             saveSession();
-            if (guessType === "album") toast("same album — more signal unlocked");
-            else if (guessType === "artist") toast("right artist — more signal unlocked");
-            else toast("nope — more signal unlocked");
+            toast("nope — more signal unlocked");
           }
+          // Classify in the background; upgrade the marker if it was the right artist/album.
+          classifyGuess(selected, submissionPuzzle).then((guessType) => {
+            if (submissionRun !== roundRun || state !== submissionState) return; // round moved on
+            if (guessType === "guess" || attempt.type !== "guess") return;       // nothing to upgrade
+            attempt.type = guessType;
+            render();
+            saveSession();
+            if (guessType === "album") toast("same album");
+            else if (guessType === "artist") toast("right artist");
+          }).catch(() => {});
         }
       }
 
