@@ -110,7 +110,7 @@
       .guess-row input::placeholder { color: #8b8b84; }
       .guess-row button { border: 0; border-left: 2px solid var(--ink); padding: 0 22px; background: var(--acid); font-weight: 900; cursor: pointer; text-transform: uppercase; }
       .guess-row button:hover { background: var(--ink); color: var(--acid); }
-      .suggestions { display: none; position: absolute; z-index: 10; left: 0; right: 96px; top: calc(100% + 4px); border: 2px solid var(--ink); background: var(--white); max-height: 196px; overflow-y: auto; overscroll-behavior: contain; box-shadow: 7px 7px 0 var(--ink); }
+      .suggestions { display: none; position: absolute; z-index: 10; left: 0; right: 96px; top: calc(100% + 4px); border: 2px solid var(--ink); background: var(--white); max-height: 360px; overflow-y: auto; overscroll-behavior: contain; box-shadow: 7px 7px 0 var(--ink); }
       .suggestions.above { top: auto; bottom: calc(100% + 4px); }
       .suggestions.open { display: block; }
       .suggestion { display: block; width: 100%; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: left; padding: 13px 16px; cursor: pointer; }
@@ -245,7 +245,7 @@
               <h2>Recent playlists</h2>
               <ul id="recentList"></ul>
             </div>
-            <p class="hint-note">Audio and artwork are matched through Deezer. Tracks without a playable Deezer preview are skipped. Private or region-locked tracks may not transfer.</p>
+            <p class="hint-note">Audio comes straight from Spotify's own previews, so the track you hear is always the exact playlist song. Album artwork is fetched from Deezer. Private or region-locked tracks may not transfer.</p>
           </div>
 
           <!-- Game view: shown once a playlist is loaded -->
@@ -273,7 +273,7 @@
             <div class="transport">
               <button class="play" id="playButton" aria-label="Loading preview" disabled>…</button>
               <div class="listen-meta">
-                <span>preview + metadata<br />matched via Deezer</span>
+                <span>preview audio<br />from Spotify</span>
               </div>
             </div>
 
@@ -316,8 +316,8 @@
 
       <footer>
         <span>Unlimited · bring any playlist</span>
-        <span class="footer-center">CLIP//R Endless v0.85 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
-        <span class="footer-credit">Preview audio and metadata from <a href="https://www.deezer.com" target="_blank" rel="noopener">Deezer</a> · playlists via Spotify</span>
+        <span class="footer-center">CLIP//R Endless v0.90 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
+        <span class="footer-credit">Preview audio from <a href="https://www.spotify.com" target="_blank" rel="noopener">Spotify</a> · album art via Deezer</span>
       </footer>
     </div>
 
@@ -344,7 +344,7 @@
         <p>Press play, then choose a track. Every miss unlocks more of the signal: 0.5, 1, 2, 4, 8, then 16 seconds. Solve it, hit <strong>next track</strong>, and keep your streak alive.</p>
         <p>You start with <strong>8 health</strong>. Solving on the 0.5s clip heals +1 (capped at 8); 1s is neutral; every longer clip costs one more, down to −4 at 16s. Letting a track beat you entirely is an instant wipeout. At 0 health the run ends — hit <strong>restart</strong> for a fresh session with full health.</p>
         <p>A yellow ARTIST or ALBUM marker means your guess shares that detail with the answer.</p>
-        <p>Track information and previews are matched from Deezer. Tracks without a playable Deezer preview are skipped.</p>
+        <p>Audio comes straight from Spotify's own preview for each track — the song you hear is always the exact playlist track. Album artwork is pulled from Deezer.</p>
         <div class="modal-actions"><button data-close>let’s play</button></div>
       </div>
     </div>
@@ -419,7 +419,6 @@
         trackMetadata.set(trackId, record);
         return record;
       }
-
       // Deezer rate limiter. Deezer's public API caps requests (~50 per 5s per IP) and returns
       // "Quota limit exceeded" (error code 4) past that. Resolving a large playlist makes
       // hundreds of calls, so without pacing most of them fail and the tracks get dropped —
@@ -608,96 +607,6 @@
         return payload;
       }
 
-      // Resolve one Spotify track to a playable Deezer track.
-      // Scores candidates on title, artist, and duration closeness, then rejects a best pick
-      // that clearly isn't the same recording (wrong artist AND duration far off), so a
-      // coincidental same-title song never gets served in place of the real track.
-      //
-      // Deezer's search struggles when a non-Latin (e.g. Japanese) artist name is concatenated
-      // with a Latin title, often returning nothing. So when the primary "artist + title" query
-      // is weak, we widen with extra query shapes (title-only, title + artist) and let the
-      // scorer and the wrong-song guard filter the extra noise.
-      async function resolveTrack(sp) {
-        const artists = (sp.artists || []).filter(Boolean);
-        const primaryArtist = artists[0] || "";
-        const wantTitle = normalize(sp.title);
-        const spSeconds = sp.durationMs ? Math.round(sp.durationMs / 1000) : null;
-        const hasLatin = (s) => /[a-z]/i.test(s || "");
-        const hasCJK = (s) => /[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af]/.test(s || "");
-
-        const artistOf = (r) => normalize(r.artist?.name);
-        const artistMatch = (r) => artists.some((name) => {
-          const n = normalize(name);
-          return n && (n === artistOf(r) || artistOf(r).includes(n) || n.includes(artistOf(r)));
-        });
-        const durationDiff = (r) => (spSeconds == null ? null : Math.abs(spSeconds - r.duration));
-
-        const score = (r) => {
-          let s = 0;
-          const title = normalize(r.title);
-          if (title === wantTitle) s += 50;
-          else if (title.includes(wantTitle) || wantTitle.includes(title)) s += 22;
-          if (artistMatch(r)) s += 45;
-          const diff = durationDiff(r);
-          if (diff != null) {
-            if (diff <= 2) s += 30;
-            else if (diff <= 5) s += 18;
-            else if (diff <= 10) s += 6;
-            else if (diff > 20) s -= 45;
-            else s -= 8;
-          }
-          return s;
-        };
-
-        async function search(query) {
-          try {
-            const data = await deezerLimited(() => deezerJsonp(`/search/track?q=${encodeURIComponent(query)}&limit=10`));
-            return (data && data.data) || [];
-          } catch (_) { return []; }
-        }
-
-        const seen = new Set();
-        const pool = [];
-        const addRows = (rows) => { for (const r of rows) if (r && r.id && !seen.has(r.id)) { seen.add(r.id); pool.push(r); } };
-        const evaluate = () => {
-          const playable = pool.filter((r) => r.readable && r.preview);
-          if (!playable.length) return null;
-          let best = playable[0], bestScore = score(best);
-          for (const r of playable) { const s = score(r); if (s > bestScore) { bestScore = s; best = r; } }
-          return { best, bestScore };
-        };
-
-        // Query 1: artist + title.
-        addRows(await search(`${primaryArtist} ${sp.title}`.trim()));
-        let ev = evaluate();
-        // Fallbacks only when the primary query has no confident hit (keeps well-matched
-        // playlists from paying for extra requests).
-        if (!ev || ev.bestScore < 95) {
-          addRows(await search(sp.title));
-          ev = evaluate();
-        }
-        if ((!ev || ev.bestScore < 95) && hasCJK(primaryArtist) && hasLatin(sp.title)) {
-          addRows(await search(`${sp.title} ${primaryArtist}`.trim()));
-          ev = evaluate();
-        }
-        if (!ev) return null;
-
-        // Reject a pick that is almost certainly a different song: no artist overlap and either
-        // the duration is far off, or (with no duration to check) the title isn't even exact.
-        const best = ev.best;
-        const diff = durationDiff(best);
-        const wrongSong = (!artistMatch(best) && diff != null && diff > 15)
-          || (!artistMatch(best) && diff == null && normalize(best.title) !== wantTitle);
-        if (wrongSong) return null;
-
-        return {
-          id: Number(best.id),
-          artist: best.artist?.name || primaryArtist,
-          title: best.title || sp.title
-        };
-      }
-
-
       async function startPlaylist(id) {
         $("#loadButton").disabled = true;
         $("#playlistInput").disabled = true;
@@ -714,9 +623,20 @@
           return;
         }
 
-        const spTracks = (data.tracks || []).filter((t) => t.isPlayable !== false && t.title);
+        // v0.90: the song pool is built directly from Spotify's own data — no Deezer matching.
+        // Each track already carries its id, title, artist(s), duration, and Spotify preview, so
+        // the audio you hear is always the exact playlist track (no wrong-artist mismatches).
+        const spTracks = (data.tracks || []).filter((t) => t.isPlayable !== false && t.title && t.id);
 
-        // Reject oversized playlists before doing any matching work.
+        if (!spTracks.length) {
+          setLoaderStatus("This playlist has no playable tracks. Try another playlist.");
+          $("#loaderProgress").hidden = true;
+          $("#loadButton").disabled = false;
+          $("#playlistInput").disabled = false;
+          return;
+        }
+
+        // Reject oversized playlists.
         if (spTracks.length > MAX_PLAYLIST_TRACKS) {
           setLoaderStatus(`That playlist has ${spTracks.length} songs. Please link a playlist with fewer than ${MAX_PLAYLIST_TRACKS} songs.`);
           $("#loaderProgress").hidden = true;
@@ -725,57 +645,45 @@
           return;
         }
 
-        // Invalidate any background resolution still running from a previous playlist.
-        const token = ++resolveToken;
+        // Invalidate anything left over from a previous playlist.
+        ++resolveToken;
 
-        // Shuffle the raw Spotify tracks so the first batch we resolve is a random sample of
-        // the whole playlist, not just its opening tracks.
-        const shuffledSp = shuffle([...spTracks]);
-        const firstBatch = shuffledSp.slice(0, INITIAL_BATCH);
-        const restBatch = shuffledSp.slice(INITIAL_BATCH);
-
-        setLoaderStatus(`Matching ${Math.min(firstBatch.length, spTracks.length)} of ${spTracks.length} tracks…`);
-        const resolved = [];
+        // Build the pool. De-dupe by track id. Preview may be null for tracks beyond the first
+        // 100 of a large playlist — those are fetched lazily when the track is played.
         const seen = new Set();
-        let done = 0;
-        // Resolve the first batch up front; the Deezer limiter paces the underlying requests.
-        await Promise.all(firstBatch.map(async (t) => {
-          const r = await resolveTrack(t);
-          done += 1;
-          if (r && !seen.has(r.id)) { seen.add(r.id); resolved.push(r); }
-          setProgress(done, firstBatch.length);
-          setLoaderStatus(`Matching tracks… ${done}/${firstBatch.length}`);
-        }));
-
-        if (token !== resolveToken) return; // a newer load superseded this one
-
-        if (!resolved.length) {
-          setLoaderStatus("None of this playlist's tracks could be matched to a playable preview. Try another playlist.");
-          $("#loaderProgress").hidden = true;
-          $("#loadButton").disabled = false;
-          $("#playlistInput").disabled = false;
-          return;
+        tracks = [];
+        for (const t of spTracks) {
+          if (seen.has(t.id)) continue;
+          seen.add(t.id);
+          tracks.push({
+            id: t.id,
+            title: t.title,
+            artist: (t.artists && t.artists[0]) || "",
+            artists: Array.isArray(t.artists) ? t.artists : [],
+            album: t.album || null,
+            durationMs: t.durationMs || null,
+            preview: t.preview || null
+          });
         }
 
-        tracks = resolved;
         playlistMeta = {
           name: data.name || "Spotify playlist",
-          total: data.total || spTracks.length,
-          loaded: resolved.length,
-          skipped: firstBatch.length - resolved.length,
-          pending: restBatch.length,
-          truncated: Boolean(data.truncated)
+          total: data.total || tracks.length,
+          loaded: tracks.length,
+          skipped: 0,
+          pending: 0,
+          truncated: Boolean(data.truncated),
+          cover: data.cover || null
         };
         saveRecent(id, playlistMeta.name);
         currentPlaylistId = id;
-        pendingSpTracks = restBatch.slice();   // remaining unresolved tracks (for persistence/resume)
+        pendingSpTracks = [];
 
-        // reset session for the new playlist
         order = shuffle([...tracks.keys()]);
         orderPos = 0;
         round = 0;
         resetSessionStats();
-        clearSavedSession();                   // a fresh playlist replaces any prior snapshot
+        clearSavedSession();
 
         $("#loadButton").disabled = false;
         $("#playlistInput").disabled = false;
@@ -784,64 +692,28 @@
         $("#gameView").hidden = false;
 
         renderPlaylistBanner();
-
         updateScoreboard();
         nextRound();
         saveSession();
-        let toastMsg = `Loaded ${playlistMeta.loaded} tracks`;
-        if (restBatch.length) toastMsg += ` · ${restBatch.length} more loading`;
-        else if (playlistMeta.skipped) toastMsg += ` · ${playlistMeta.skipped} unavailable`;
-        toast(toastMsg);
-
-        // Stream the remaining tracks in the background and fold them into the live pool.
-        if (restBatch.length) resolveRemaining(restBatch, seen, token);
+        toast(`Loaded ${playlistMeta.loaded} tracks`);
       }
 
-      // Resolve the leftover Spotify tracks after the game has already started, adding each
-      // match into the live pool and the unplayed remainder of the rotation so a
-      // background-resolved song can appear as soon as the next round. Each processed track is
-      // removed from the persisted `pendingSpTracks` list so a snapshot taken mid-stream resumes
-      // only the still-unresolved remainder.
-      async function resolveRemaining(spTracks, seen, token) {
-        backgroundResolving = true;
-        let added = 0;
-        let sinceSave = 0;
+      // Ensure a track has a playable preview URL, fetching it lazily from the server for tracks
+      // beyond the first 100 of a large playlist (pathfinder doesn't carry previews). Returns the
+      // preview URL or null. The result is cached on the track object.
+      async function ensurePreview(track) {
+        if (track.preview) return track.preview;
+        if (track._noPreview) return null;
         try {
-          await Promise.all(spTracks.map(async (t) => {
-            const r = await resolveTrack(t);
-            if (token !== resolveToken) return;      // playlist changed; abandon
-            // This track is now processed — drop it from the pending/resume list.
-            const pi = pendingSpTracks.indexOf(t);
-            if (pi !== -1) pendingSpTracks.splice(pi, 1);
-            if (r && !seen.has(r.id)) {
-              seen.add(r.id);
-              const index = tracks.length;
-              tracks.push(r);
-              insertIntoRotation(index);
-              added += 1;
-            }
-            if (playlistMeta) {
-              playlistMeta.loaded = tracks.length;
-              playlistMeta.pending = pendingSpTracks.length;
-              renderPlaylistBanner();
-            }
-            // Persist occasionally so a switch mid-stream keeps most of the resolved pool.
-            if (++sinceSave >= 10) { sinceSave = 0; saveSession(); }
-          }));
-        } finally {
-          if (token === resolveToken) {
-            backgroundResolving = false;
-            pendingSpTracks = [];
-            if (playlistMeta) { playlistMeta.pending = 0; renderPlaylistBanner(); }
-            saveSession();
-            if (added) toast(`${added} more tracks added to the pool`);
-          }
-        }
+          const res = await fetch(`/api/playlist?preview=${encodeURIComponent(track.id)}`);
+          const payload = await res.json().catch(() => null);
+          if (res.ok && payload && payload.preview) { track.preview = payload.preview; return track.preview; }
+        } catch (_) {}
+        track._noPreview = true;
+        return null;
       }
 
-      // Drop a newly-resolved track into the still-unplayed part of the rotation at a random
-      // position, so it can surface in an upcoming round rather than only after the initial
-      // batch has been exhausted. Repeats are still avoided until the pool cycles.
+      // Drop a track index into the still-unplayed part of the rotation at a random position.
       function insertIntoRotation(trackIndex) {
         if (orderPos >= order.length) { order.push(trackIndex); return; }
         const span = order.length - orderPos;
@@ -926,21 +798,24 @@
 
         const selected = resume ? resume.selected : tracks[nextTrackIndex()];
         try {
-          const record = await getTrackMetadata(selected.id);
+          // Spotify-native: the preview, title, and artist all come straight from the playlist
+          // track. For tracks beyond the first 100 of a large playlist the preview is fetched
+          // lazily here. Album artwork is pulled from Deezer only when the round is revealed.
+          const preview = await ensurePreview(selected);
           if (run !== roundRun) return;
-          if (!record.readable || !record.preview) throw new Error("preview unavailable");
+          if (!preview) throw new Error("preview unavailable");
           puzzle = {
-            ...selected,
-            artist: record.artist?.name || selected.artist,
-            title: record.title || selected.title,
-            albumId: Number(record.album?.id) || null,
-            albumKey: normalize(record.album?.title || ""),
-            artistIds: artistIds(record),
-            artistKeys: artistKeys(record, selected.artist),
-            preview: record.preview,
-            link: record.link,
-            cover: record.album?.cover_big || record.album?.cover_medium || null,
-            soundcloud: selected.soundcloud || `https://soundcloud.com/search/sounds?q=${encodeURIComponent(`${selected.artist} ${selected.title}`)}`
+            id: selected.id,
+            artist: selected.artist,
+            title: selected.title,
+            artists: selected.artists || [selected.artist],
+            album: selected.album || null,
+            preview,
+            spotify: `https://open.spotify.com/track/${selected.id}`,
+            cover: null,          // filled lazily from Deezer on reveal
+            deezerLink: null,
+            // Normalized artist keys for the native ARTIST hint (no Deezer needed).
+            artistKeys: [...new Set((selected.artists || [selected.artist]).map((n) => normalize(n)).filter(Boolean))]
           };
           previewAudio = new Audio(puzzle.preview);
           previewAudio.preload = "auto";
@@ -962,12 +837,13 @@
       function currentStep() { return Math.min(state.attempts.length, clipSteps.length - 1); }
       function currentDuration() { return state.over ? previewDuration : clipSteps[currentStep()]; }
 
-      async function classifyGuess(track, target) {
-        const record = await getTrackMetadata(track.id);
-        const gAlbumId = Number(record.album?.id) || null;
-        const gAlbumKey = normalize(record.album?.title || "");
-        if ((target.albumId && gAlbumId === target.albumId) || (target.albumKey && gAlbumKey === target.albumKey)) return "album";
-        if (sharesValue(target.artistIds, artistIds(record)) || sharesValue(target.artistKeys, artistKeys(record, track.artist))) return "artist";
+      // Classify a wrong guess for the yellow hint, using Spotify data only (no network call):
+      // ARTIST when the guessed track shares an artist with the answer; ALBUM when both carry an
+      // album name (pathfinder playlists) and they match. Otherwise a plain miss.
+      function classifyGuess(track, target) {
+        const guessArtistKeys = [...new Set((track.artists || [track.artist]).map((n) => normalize(n)).filter(Boolean))];
+        if (target.album && track.album && normalize(target.album) === normalize(track.album)) return "album";
+        if (sharesValue(target.artistKeys || [], guessArtistKeys)) return "artist";
         return "guess";
       }
 
@@ -1038,7 +914,7 @@
         return matches.sort((a, b) =>
           a.title.localeCompare(b.title, undefined, { sensitivity: "base", numeric: true })
           || a.artist.localeCompare(b.artist, undefined, { sensitivity: "base", numeric: true })
-        ).slice(0, 7);
+        ).slice(0, 40);
       }
 
       function showSuggestions() {
@@ -1062,9 +938,9 @@
         const inputRect = input.getBoundingClientRect();
         const roomBelow = window.innerHeight - inputRect.bottom - 16;
         const roomAbove = inputRect.top - 16;
-        const openAbove = roomBelow < 196 && roomAbove > roomBelow;
+        const openAbove = roomBelow < 240 && roomAbove > roomBelow;
         suggestions.classList.toggle("above", openAbove);
-        suggestions.style.maxHeight = `${Math.max(96, Math.min(196, openAbove ? roomAbove : roomBelow) - 8)}px`;
+        suggestions.style.maxHeight = `${Math.max(96, Math.min(360, openAbove ? roomAbove : roomBelow) - 8)}px`;
         suggestions.classList.toggle("open", options.length > 0 && !state.over);
       }
 
@@ -1100,30 +976,20 @@
           render();
           reveal();
         } else {
-          // Optimistic commit: register the miss and unlock the next clip immediately instead
-          // of blocking on Deezer classification. The attempt shows as a plain MISS right away;
-          // when classification resolves (it may wait on the limiter while a playlist is still
-          // loading) the marker is upgraded in place to ARTIST/ALBUM.
+          // Classification is now synchronous (Spotify data only), so register the miss with the
+          // correct ARTIST/ALBUM/MISS marker in one step and unlock the next clip immediately.
           suggestions.classList.remove("open");
-          const attempt = { type: "guess", text: label(selected) };
-          submissionState.attempts.push(attempt);
+          const guessType = classifyGuess(selected, submissionPuzzle);
+          submissionState.attempts.push({ type: guessType, text: label(selected) });
           input.value = "";
           if (submissionState.attempts.length >= maxAttempts) finishLoss();
           render();
           if (!state.over) {
             saveSession();
-            toast("nope — more signal unlocked");
+            if (guessType === "album") toast("same album — more signal unlocked");
+            else if (guessType === "artist") toast("right artist — more signal unlocked");
+            else toast("nope — more signal unlocked");
           }
-          // Classify in the background; upgrade the marker if it was the right artist/album.
-          classifyGuess(selected, submissionPuzzle).then((guessType) => {
-            if (submissionRun !== roundRun || state !== submissionState) return; // round moved on
-            if (guessType === "guess" || attempt.type !== "guess") return;       // nothing to upgrade
-            attempt.type = guessType;
-            render();
-            saveSession();
-            if (guessType === "album") toast("same album");
-            else if (guessType === "artist") toast("right artist");
-          }).catch(() => {});
         }
       }
 
@@ -1166,25 +1032,70 @@
         saveSession();
       }
 
+      function setRevealCover(url) {
+        $("#answerCover").src = url || "";
+        $("#answerCover").alt = url ? `${puzzle ? puzzle.title : ""} cover art` : "";
+        $("#transmissionCover").src = url || "";
+        $("#transmissionCover").alt = url ? `${puzzle ? puzzle.title : ""} cover art` : "";
+      }
+
+      // Image-only Deezer lookup for the revealed song's album art + Deezer link. Runs once per
+      // solved/lost round (lazy), not during playlist load. A wrong match here only affects the
+      // thumbnail — never the song you heard — so it can't corrupt the game.
+      const artworkCache = new Map();
+      async function enrichArtwork(p) {
+        if (artworkCache.has(p.id)) return artworkCache.get(p.id);
+        const promise = (async () => {
+          try {
+            const q = `${p.artist} ${p.title}`.trim();
+            const data = await deezerJsonp(`/search/track?q=${encodeURIComponent(q)}&limit=5`);
+            const rows = (data && data.data) || [];
+            const want = normalize(p.title);
+            const wantArtist = normalize(p.artist);
+            // Prefer a row matching both title and artist; fall back to the first with a cover.
+            let best = rows.find((r) => normalize(r.title) === want && normalize(r.artist?.name || "").includes(wantArtist))
+              || rows.find((r) => normalize(r.title) === want)
+              || rows[0];
+            if (!best) return null;
+            return {
+              cover: best.album?.cover_big || best.album?.cover_medium || best.album?.cover || null,
+              link: best.link || null
+            };
+          } catch (_) { return null; }
+        })();
+        artworkCache.set(p.id, promise);
+        return promise;
+      }
+
       function reveal() {
         if (!puzzle || !state.over) return;
         const dead = session.dead;
+        const revealRun = roundRun;
         $("#resultKicker").textContent = dead ? "Flatline" : (state.won ? "Signal found" : "Signal lost");
         $("#resultTitle").textContent = dead ? "game over." : (state.won ? "nailed it." : "too loud.");
         $("#answerTrack").textContent = puzzle.title;
         $("#answerArtist").textContent = puzzle.artist;
-        $("#resultSongLink").href = puzzle.soundcloud;
-        $("#resultSongLink").setAttribute("aria-label", `Open ${puzzle.artist} — ${puzzle.title} on SoundCloud`);
-        $("#answerCover").src = puzzle.cover || "";
-        $("#answerCover").alt = puzzle.cover ? `${puzzle.title} cover art` : "";
+        // Links now point at Spotify (the source of truth), replacing the old SoundCloud search.
+        $("#resultSongLink").href = puzzle.spotify;
+        $("#resultSongLink").setAttribute("aria-label", `Open ${puzzle.artist} — ${puzzle.title} on Spotify`);
         $("#transmissionTitle").textContent = puzzle.title;
         $("#transmissionArtist").textContent = puzzle.artist;
-        $("#transmissionCover").src = puzzle.cover || "";
-        $("#transmissionCover").alt = puzzle.cover ? `${puzzle.title} cover art` : "";
-        $("#transmissionAnswer").href = puzzle.soundcloud;
-        $("#transmissionAnswer").setAttribute("aria-label", `Open ${puzzle.artist} — ${puzzle.title} on SoundCloud`);
+        $("#transmissionAnswer").href = puzzle.spotify;
+        $("#transmissionAnswer").setAttribute("aria-label", `Open ${puzzle.artist} — ${puzzle.title} on Spotify`);
         $("#transmissionAnswer").hidden = false;
-        $("#deezerLink").href = puzzle.link;
+
+        // Artwork: show the puzzle's cover if we already fetched it, otherwise the playlist cover
+        // as an immediate placeholder, then enrich with the song's own Deezer cover lazily.
+        const placeholder = puzzle.cover || (playlistMeta && playlistMeta.cover) || "";
+        setRevealCover(placeholder);
+        $("#deezerLink").href = puzzle.deezerLink || puzzle.spotify;
+        if (!puzzle.cover) {
+          enrichArtwork(puzzle).then((info) => {
+            if (!info || revealRun !== roundRun) return;
+            if (info.cover) { puzzle.cover = info.cover; setRevealCover(info.cover); }
+            if (info.link) { puzzle.deezerLink = info.link; $("#deezerLink").href = info.link; }
+          }).catch(() => {});
+        }
         let copy;
         if (session.dead) {
           copy = state.won
@@ -1336,12 +1247,6 @@
           restoring = false;
         }
 
-        // Resume streaming any tracks that hadn't resolved before the switch.
-        if (pendingSpTracks.length) {
-          const token = ++resolveToken;
-          const seen = new Set(tracks.map((t) => t.id));
-          resolveRemaining(pendingSpTracks.slice(), seen, token);
-        }
         toast("resumed your session");
       }
 

@@ -2,22 +2,22 @@
 
 CLIP//R is a music guessing game inspired by Heardle. The main mode, **Endless**, lets a player paste any public Spotify playlist and guess its tracks from the shortest possible preview, round after round. The original curated daily game ("CLIP//R daily") lives on as the **legacy** version.
 
-Current release: **v0.85**.
+Current release: **v0.90**.
 
-Players begin with 0.5 seconds of audio. A wrong guess or skip unlocks progressively longer clips at 1, 2, 4, 8, and 16 seconds. When the game ends, CLIP//R reveals the track, artist, and album artwork in both the result screen and transmission log, unlocks the full 30-second preview, and links the revealed song to SoundCloud.
+Players begin with 0.5 seconds of audio. A wrong guess or skip unlocks progressively longer clips at 1, 2, 4, 8, and 16 seconds. When the game ends, CLIP//R reveals the track, artist, and album artwork in both the result screen and transmission log, unlocks the full 30-second preview, and links the revealed song to Spotify.
 
 Endless mode runs on **health** rather than a fixed round count. A player starts a session with 8 health. Solving on the first 0.5s clip restores a point (capped at 8), 1s is neutral, and each longer clip costs one more point, down to −4 at the 16s clip; letting a track go completely unsolved is an instant wipeout. At 0 health the session ends and the player can restart for a fresh run with full health.
 
-### Streaming playlist load
+### Spotify-native audio (v0.90)
 
-To cut the wait on large playlists, Endless resolves a **random 100 tracks first**, starts the game immediately, then keeps matching the remaining tracks in the background. Each newly matched track is folded into both the guess list and the round rotation as it arrives (inserted at a random spot in the unplayed remainder, so it can surface within a round or two rather than only after the first 100 are exhausted). Playlists larger than **1000 tracks are rejected** before any matching work begins.
+As of v0.90, Endless plays **Spotify's own 30-second preview** for each track instead of matching the song to a third party. Because the audio, the accepted answer, and the reveal link all come from the same Spotify track, the song you hear is always exactly the playlist track — the earlier class of wrong-artist mismatches (two different songs sharing a title, e.g. `2025`) is gone by construction. Loading is also far faster: the pool is built directly from the playlist response with no per-track matching pass. Album artwork is still fetched lazily from Deezer when a round is revealed (image only — a wrong artwork match can never change the song you heard). Playlists larger than **1000 tracks are rejected**.
 
 ## Endless mode (main)
 
 - Paste a public Spotify playlist link (`open.spotify.com/playlist/…`, an `intl-xx` link, or a `spotify:playlist:…` URI). The playlist becomes both the song pool the game draws from and the complete list of accepted guesses.
 - Each round picks a random track from the playlist; after the answer is revealed, **next track** starts a new round. The pool cycles through every track before repeating.
 - **Session scoring** tracks your current streak, best streak, number solved, and a solve-by-clip-length distribution. Session stats reset when you load a new playlist or close the tab — there is no shared daily song and no cross-session streak.
-- **Switching modes keeps your progress.** The loaded playlist, resolved pool, health, scoreboard, and the exact round in progress are saved in the browser, so leaving for **Legacy daily** and coming back to Endless resumes where you left off (the snapshot is only replaced when you load a new playlist or restart).
+- **Switching modes keeps your progress.** The loaded playlist, song pool, health, scoreboard, and the exact round in progress are saved in the browser, so leaving for **Legacy daily** and coming back to Endless resumes where you left off (the snapshot is only replaced when you load a new playlist or restart).
 - Recently loaded playlists are remembered in the browser for quick reloading.
 - Switch between modes with the **Legacy daily** button in Endless and the **← Endless** button in legacy.
 
@@ -31,13 +31,13 @@ Reading a playlist runs through a small serverless function at `/api/playlist` (
 
 The function uses **no Spotify login or API key**.
 
-The browser then matches each Spotify track to a playable **Deezer** preview (reusing the same audio and metadata engine as the daily game) and builds the round from the matches.
+Each track in the response carries Spotify's own preview URL, so the browser plays that audio directly — no third-party matching step. For playlists over 100 tracks, pathfinder enumerates the full list (which doesn't include previews), and the preview for each of those extra tracks is fetched lazily from its track embed (`/api/playlist?preview=<id>`) the first time it is played.
 
 ### Known limitations
 
-- **Unmatched tracks are dropped.** A playlist track is only playable if it can be matched to a readable Deezer track with a 30-second preview. Matching is best-effort by artist + title + track length (Spotify's keyless path exposes no ISRC): candidates are scored on title, artist, and duration closeness, and a best match with the wrong artist and a far-off duration is rejected rather than served, so a coincidental same-title song (a cover, a karaoke version, an unrelated pop song) isn't played in place of the real track. When the primary artist-plus-title search comes back weak — common when a non-Latin artist name is paired with a Latin title — the matcher widens with title-only and reordered queries to recover the track. Tracks that still can't be confirmed are excluded from both the song pool and the guess list, and the loader reports how many were skipped. This mirrors the gaps documented in [PLAYLIST_IMPORT.md](PLAYLIST_IMPORT.md) for the curated catalog.
-- **Soundtrack / instrumental catalogs match less well.** Scores and OSTs whose tracks live inside large album releases under a non-Latin or romanized composer name, often with generic one-word titles ("Moment", "Burden") and alternate-length album cuts, are harder to confirm by title + artist + duration alone. Some of these are dropped even though the recording exists on Deezer inside an album. Album-based resolution would recover more of them and is a known improvement to be patched — ideally alongside ISRC matching once a non-keyless path is available.
-- **The keyless Spotify path is fragile.** The `fetchPlaylist` GraphQL call depends on a persisted-query hash baked into Spotify's web player bundle; when Spotify rebuilds the player the hash rotates and the call returns HTTP 412. The function then falls back to the first 100 embed tracks and flags the import as truncated. The anonymous embed token also expires within ~25–50 minutes and is rate-limited. This relies on an undocumented internal API Spotify can change without notice.
+- **A few tracks may lack a preview.** Playback uses Spotify's own 30-second preview. A small number of tracks have no preview available from Spotify (region or licensing); those are skipped when drawn. Because audio, answer, and reveal link all come from the same Spotify track, a track is never swapped for a different same-titled song — the earlier wrong-artist matching bug does not apply.
+- **Album artwork is best-effort.** The reveal screen's cover art is fetched from Deezer by artist + title (Spotify's keyless paths expose no per-track image). If Deezer can't confirm the exact release, the artwork may be slightly off or fall back to the playlist cover. This is cosmetic only — it never affects the song you hear or the accepted answer.
+- **The keyless Spotify path is fragile.** For playlists over 100 tracks the `fetchPlaylist` GraphQL call depends on a persisted-query hash baked into Spotify's web player bundle; when Spotify rebuilds the player the hash rotates and the call returns HTTP 412. The function then falls back to the first 100 embed tracks and flags the import as truncated. The anonymous embed token also expires within ~25–50 minutes and is rate-limited. This relies on an undocumented internal API Spotify can change without notice.
 - **Only public playlists.** Private or deleted playlists cannot be read by id alone and report as unavailable.
 
 ## Legacy daily mode

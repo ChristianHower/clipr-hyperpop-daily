@@ -59,10 +59,13 @@ async function fetchEmbed(id) {
   const session = pageProps?.state?.settings?.session;
   if (!entity || !session?.accessToken) return { notFound: true };
   const tracks = (entity.trackList || []).map((t) => ({
+    id: idFromUri(t.uri),
     title: t.title || "",
     // The embed only gives a comma-joined artist string; pathfinder has the real list.
     artists: (t.subtitle || "").split(", ").map((s) => s.trim()).filter(Boolean),
     durationMs: Number(t.duration) || null,
+    // Spotify's own 30-second preview for this exact track — the source of truth for audio.
+    preview: (t.audioPreview && t.audioPreview.url) || null,
     isPlayable: t.isPlayable !== false
   }));
   return {
@@ -71,6 +74,13 @@ async function fetchEmbed(id) {
     token: session.accessToken,
     tracks
   };
+}
+
+// Extract the 22-char base-62 track id from a "spotify:track:<id>" uri.
+function idFromUri(uri) {
+  if (typeof uri !== "string") return null;
+  const m = uri.match(/spotify:track:([0-9A-Za-z]{22})/);
+  return m ? m[1] : null;
 }
 
 async function fetchAllViaPathfinder(id, token) {
@@ -105,10 +115,14 @@ async function fetchAllViaPathfinder(id, token) {
       if (kind === "TrackResponseWrapper" && wrapper.data?.__typename === "Track") {
         const d = wrapper.data;
         out.push({
+          id: idFromUri(d.uri) || null,
           title: d.name || "",
           artists: joinArtists(d.artists?.items?.map((a) => a?.profile?.name)),
           album: d.albumOfTrack?.name || null,
           durationMs: d.trackDuration?.totalMilliseconds || null,
+          // Pathfinder's Track doesn't carry a preview; it's fetched lazily per track from the
+          // track embed (see the ?preview= branch of the handler) only when the track is played.
+          preview: null,
           isPlayable: (d.playability?.reason || "PLAYABLE") === "PLAYABLE"
         });
       }
@@ -121,9 +135,42 @@ async function fetchAllViaPathfinder(id, token) {
   return out;
 }
 
+// Fetch a single track's preview URL from its embed page (keyless). Used to lazily resolve
+// previews for tracks beyond the first 100 in a large playlist, which pathfinder doesn't carry.
+async function fetchTrackPreview(trackId) {
+  const res = await fetch(`https://open.spotify.com/embed/track/${trackId}`, {
+    headers: { "User-Agent": BROWSER_UA, "Accept-Language": "en" }
+  });
+  if (!res.ok) throw new Error(`track embed HTTP ${res.status}`);
+  const html = await res.text();
+  const match = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+  if (!match) throw new Error("track embed has no __NEXT_DATA__");
+  const data = JSON.parse(match[1]);
+  const entity = data?.props?.pageProps?.state?.data?.entity;
+  return (entity?.audioPreview && entity.audioPreview.url) || null;
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Cache-Control", "public, max-age=300, s-maxage=600");
+
+  // Lazy single-track preview resolver: /api/playlist?preview=<trackId>
+  const previewId = req.query && req.query.preview;
+  if (previewId) {
+    const tid = Array.isArray(previewId) ? previewId[0] : previewId;
+    if (!/^[0-9A-Za-z]{22}$/.test(tid || "")) {
+      res.status(400).json({ error: "Invalid track id." });
+      return;
+    }
+    try {
+      const preview = await fetchTrackPreview(tid);
+      res.setHeader("Cache-Control", "public, max-age=3600, s-maxage=86400");
+      res.status(200).json({ id: tid, preview });
+    } catch (_) {
+      res.status(502).json({ error: "Couldn't read that track right now." });
+    }
+    return;
+  }
 
   const raw = (req.query && (req.query.id || req.query.url)) || "";
   const parsed = parsePlaylistId(Array.isArray(raw) ? raw[0] : raw);
@@ -152,7 +199,16 @@ module.exports = async function handler(req, res) {
     if (embed.tracks.length >= EMBED_PAGE_CAP) {
       try {
         const full = await fetchAllViaPathfinder(id, embed.token);
-        if (full.length) tracks = full;
+        if (full.length) {
+          // Pathfinder has every track but no previews; the embed has previews for the first 100.
+          // Carry those previews over by track id so most of a large playlist plays immediately,
+          // and the rest are resolved lazily client-side via ?preview=.
+          const embedPreview = new Map(embed.tracks.filter((t) => t.id).map((t) => [t.id, t.preview]));
+          for (const t of full) {
+            if (t.id && t.preview == null && embedPreview.has(t.id)) t.preview = embedPreview.get(t.id);
+          }
+          tracks = full;
+        }
       } catch (_) {
         truncated = true; // keep the embed's 100 tracks, flag it
       }
