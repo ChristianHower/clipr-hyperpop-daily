@@ -122,6 +122,10 @@
       .secondary-left { display: flex; align-items: center; gap: 18px; }
       .skip { border: 0; background: transparent; padding: 8px 0; text-decoration: underline; text-underline-offset: 4px; font-weight: 800; cursor: pointer; }
       .restart-inline { color: var(--hot); }
+      .continue-btn { margin-top: 16px; width: 100%; min-height: 54px; border: 2px solid var(--ink); background: var(--acid); font-weight: 900; text-transform: uppercase; letter-spacing: .04em; cursor: pointer; box-shadow: 5px 5px 0 var(--blue); transition: transform .12s ease, box-shadow .12s ease; }
+      .continue-btn:hover { transform: translate(-2px, -2px); box-shadow: 7px 7px 0 var(--blue); }
+      .continue-btn:active { transform: translate(3px, 3px); box-shadow: 1px 1px 0 var(--blue); }
+      .continue-btn[hidden] { display: none; }
       .attempts { font: 700 .74rem monospace; color: var(--muted); text-transform: uppercase; }
 
       .sidebar { border-left: 2px solid var(--ink); background: var(--ink); color: var(--paper); display: flex; flex-direction: column; min-height: 100%; }
@@ -291,6 +295,7 @@
               </div>
               <span class="attempts" id="attemptText">6 attempts left</span>
             </div>
+            <button class="continue-btn" id="continueButton" type="button" hidden>continue →</button>
           </div>
         </section>
 
@@ -316,7 +321,7 @@
 
       <footer>
         <span>Unlimited · bring any playlist</span>
-        <span class="footer-center">CLIP//R Endless v0.90 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
+        <span class="footer-center">CLIP//R Endless v0.91 · <a id="feedbackLink" href="https://docs.google.com/forms/d/e/1FAIpQLSfywpxig56xgLO4yl6wZSGzIrLlth_e2UFqE8mOt4RLVMcoWQ/viewform" target="_blank" rel="noopener">Send feedback</a></span>
         <span class="footer-credit">Preview audio from <a href="https://www.spotify.com" target="_blank" rel="noopener">Spotify</a> · album art via Deezer</span>
       </footer>
     </div>
@@ -891,6 +896,9 @@
         $("#submitGuess").disabled = !catalogReady || state.over || submittingGuess;
         $("#submitGuess").textContent = submittingGuess ? "checking…" : "guess";
         $("#skipButton").disabled = !catalogReady || state.over || submittingGuess;
+        // When the round is over but the session is still alive, offer a Continue button on the
+        // game screen so the player can advance even if they dismissed the result modal.
+        $("#continueButton").hidden = !(state.over && !session.dead);
 
         const list = $("#attemptList");
         list.innerHTML = "";
@@ -1192,6 +1200,7 @@
       playButton.addEventListener("click", playSignal);
       resultPlayButton.addEventListener("click", playSignal);
       $("#nextTrackButton").addEventListener("click", () => { closeModals(); nextRound(); });
+      $("#continueButton").addEventListener("click", () => { closeModals(); nextRound(); });
       $("#restartButton").addEventListener("click", () => { closeModals(); restartSession(); });
       $("#restartInline").addEventListener("click", () => restartSession());
       $("#helpButton").addEventListener("click", () => openModal("infoModal"));
