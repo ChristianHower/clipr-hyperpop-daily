@@ -1,0 +1,171 @@
+// CLIP//R Endless — keyless Spotify playlist proxy.
+//
+// Runs server-side on Vercel to dodge two browser-side blockers:
+//   1. Every Spotify endpoint used here omits CORS headers, so a browser cannot read them.
+//   2. The public embed page is hard-capped at 100 tracks with no paging.
+//
+// Strategy: read the public embed page for the playlist name, cover, an anonymous access
+// token, and the first 100 tracks. If the playlist is larger, page the web player's internal
+// `fetchPlaylist` GraphQL with that token until complete. If that internal call fails (the
+// persisted-query hash rotates and returns 412, the token is refused, throttling, etc.), fall
+// back to the 100 embed tracks and report `truncated: true`.
+//
+// No Spotify login or API key is used. This depends on an undocumented internal API Spotify
+// can change without notice; see ENDLESS_SPEC.md and the README known-limitations section.
+
+// Persisted-query id for `fetchPlaylist` in Spotify's web player bundle. Rotates whenever
+// Spotify rebuilds that query; a 412 "Invalid query hash" triggers the 100-track fallback.
+const FETCH_PLAYLIST_HASH = "8964e8eafb21aa992a7d951d256d83285c04be2105d209262901de70cb97584a";
+const EMBED_PAGE_CAP = 100;
+const PATHFINDER_PAGE = 500;
+const BROWSER_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36";
+
+// Accept the forms Spotify shares; return the 22-char base-62 id or null.
+function parsePlaylistId(raw) {
+  if (!raw || typeof raw !== "string") return null;
+  const value = raw.trim();
+  const direct = value.match(/^[0-9A-Za-z]{22}$/);
+  if (direct) return value;
+  const uri = value.match(/spotify:playlist:([0-9A-Za-z]{22})/);
+  if (uri) return uri[1];
+  const url = value.match(/open\.spotify\.com\/(?:intl-[a-z-]+\/)?playlist\/([0-9A-Za-z]{22})/);
+  if (url) return url[1];
+  // A non-playlist Spotify URL (track/album/artist/user) should be rejected clearly.
+  if (/open\.spotify\.com\/(?:intl-[a-z-]+\/)?(track|album|artist|user|episode|show)\//.test(value)) {
+    return { error: "not-a-playlist" };
+  }
+  return null;
+}
+
+function joinArtists(list) {
+  return Array.isArray(list) ? list.filter(Boolean) : [];
+}
+
+async function fetchEmbed(id) {
+  const res = await fetch(`https://open.spotify.com/embed/playlist/${id}`, {
+    headers: { "User-Agent": BROWSER_UA, "Accept-Language": "en" }
+  });
+  if (!res.ok) throw new Error(`embed page HTTP ${res.status}`);
+  const html = await res.text();
+  const match = html.match(/<script id="__NEXT_DATA__" type="application\/json">([\s\S]*?)<\/script>/);
+  if (!match) throw new Error("embed page has no __NEXT_DATA__");
+  const data = JSON.parse(match[1]);
+  const pageProps = data?.props?.pageProps;
+  // An unknown id answers HTTP 200 but with status 404 and no state/token.
+  if (pageProps?.status && pageProps.status >= 400 && !pageProps?.state) {
+    return { notFound: true };
+  }
+  const entity = pageProps?.state?.data?.entity;
+  const session = pageProps?.state?.settings?.session;
+  if (!entity || !session?.accessToken) return { notFound: true };
+  const tracks = (entity.trackList || []).map((t) => ({
+    title: t.title || "",
+    // The embed only gives a comma-joined artist string; pathfinder has the real list.
+    artists: (t.subtitle || "").split(", ").map((s) => s.trim()).filter(Boolean),
+    durationMs: Number(t.duration) || null,
+    isPlayable: t.isPlayable !== false
+  }));
+  return {
+    name: entity.name || "Spotify playlist",
+    cover: entity.coverArt?.sources?.[0]?.url || entity.coverArt?.sources?.slice(-1)?.[0]?.url || null,
+    token: session.accessToken,
+    tracks
+  };
+}
+
+async function fetchAllViaPathfinder(id, token) {
+  const out = [];
+  let offset = 0;
+  let total = Infinity;
+  while (offset < total) {
+    const body = {
+      variables: { uri: `spotify:playlist:${id}`, offset, limit: PATHFINDER_PAGE, enableWatchFeedEntrypoint: false },
+      operationName: "fetchPlaylist",
+      extensions: { persistedQuery: { version: 1, sha256Hash: FETCH_PLAYLIST_HASH } }
+    };
+    const res = await fetch("https://api-partner.spotify.com/pathfinder/v2/query", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", "User-Agent": BROWSER_UA },
+      body: JSON.stringify(body)
+    });
+    if (res.status === 412) throw new Error("hash-rotated"); // triggers 100-track fallback
+    if (!res.ok) throw new Error(`pathfinder HTTP ${res.status}`);
+    const json = await res.json();
+    const playlist = json?.data?.playlistV2;
+    if (!playlist || playlist.__typename === "NotFound" || playlist.__typename === "GenericError") {
+      throw new Error("pathfinder returned no playlist");
+    }
+    const content = playlist.content || {};
+    total = Number(content.totalCount) || out.length;
+    const items = content.items || [];
+    if (!items.length) break;
+    for (const item of items) {
+      const wrapper = item?.itemV2;
+      const kind = wrapper?.__typename;
+      if (kind === "TrackResponseWrapper" && wrapper.data?.__typename === "Track") {
+        const d = wrapper.data;
+        out.push({
+          title: d.name || "",
+          artists: joinArtists(d.artists?.items?.map((a) => a?.profile?.name)),
+          album: d.albumOfTrack?.name || null,
+          durationMs: d.trackDuration?.totalMilliseconds || null,
+          isPlayable: (d.playability?.reason || "PLAYABLE") === "PLAYABLE"
+        });
+      }
+      // Skip LocalTrack, podcast episodes, and any wrapper we don't recognise.
+    }
+    offset += items.length;
+    if (offset >= total) break;
+    if (out.length > 20000) break; // safety stop
+  }
+  return out;
+}
+
+module.exports = async function handler(req, res) {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Cache-Control", "public, max-age=300, s-maxage=600");
+
+  const raw = (req.query && (req.query.id || req.query.url)) || "";
+  const parsed = parsePlaylistId(Array.isArray(raw) ? raw[0] : raw);
+
+  if (parsed && parsed.error === "not-a-playlist") {
+    res.status(400).json({ error: "That link is a Spotify track, album, or artist — paste a playlist link." });
+    return;
+  }
+  if (!parsed || typeof parsed !== "string") {
+    res.status(400).json({ error: "Paste a Spotify playlist link (open.spotify.com/playlist/…)." });
+    return;
+  }
+
+  const id = parsed;
+  try {
+    const embed = await fetchEmbed(id);
+    if (embed.notFound) {
+      res.status(404).json({ error: "This playlist doesn't exist or isn't public." });
+      return;
+    }
+
+    let tracks = embed.tracks;
+    let truncated = false;
+
+    // Only reach for the internal API when the embed may have been capped.
+    if (embed.tracks.length >= EMBED_PAGE_CAP) {
+      try {
+        const full = await fetchAllViaPathfinder(id, embed.token);
+        if (full.length) tracks = full;
+      } catch (_) {
+        truncated = true; // keep the embed's 100 tracks, flag it
+      }
+    }
+
+    res.status(200).json({
+      name: embed.name,
+      cover: embed.cover,
+      total: tracks.length,
+      truncated,
+      tracks
+    });
+  } catch (err) {
+    res.status(502).json({ error: "Couldn't read that playlist from Spotify right now. Try again in a moment." });
+  }
+};
